@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Strategy Tester · Sign in</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='login.css') }}" />
+</head>
+<body>
+  <div class="login-shell">
+    <div class="login-atmosphere" aria-hidden="true"></div>
+    <main class="login-card">
+      <header class="login-brand">
+        <p class="brand-mark">Strategy Tester</p>
+        <h1 id="authTitle">Sign in</h1>
+        <p class="login-lead" id="authLead">Sign in with your email and password to open the desk.</p>
+      </header>
+
+      <div class="auth-tabs" role="tablist" aria-label="Account">
+        <button type="button" class="auth-tab active" data-mode="login" role="tab" aria-selected="true">Sign in</button>
+        <button type="button" class="auth-tab" data-mode="register" role="tab" aria-selected="false">Create account</button>
+      </div>
+
+      <form id="authForm" class="auth-form" novalidate>
+        <label>
+          Email
+          <input id="email" name="email" type="email" autocomplete="username" required placeholder="you@example.com" />
+        </label>
+        <label>
+          Password
+          <input id="password" name="password" type="password" autocomplete="current-password" required minlength="8" placeholder="At least 8 characters" />
+        </label>
+        <p class="auth-error" id="authError" hidden></p>
+        <button type="submit" class="auth-submit" id="authSubmit">Sign in</button>
+      </form>
+      <button type="button" class="guest-continue" id="guestContinue">Continue without an account</button>
+
+      <section class="welcome-panel" id="welcomePanel" hidden>
+        <h2>Account ready</h2>
+        <p class="welcome-lead">
+          We created a PumpPortal wallet for <strong id="welcomeEmail"></strong>.
+          Fund it before Test or Trade. Trade streams and real buys need SOL on this address.
+        </p>
+        <dl class="welcome-creds">
+          <div>
+            <dt>Wallet address</dt>
+            <dd>
+              <code id="welcomePubkey"></code>
+              <button type="button" class="copy-btn" data-copy="welcomePubkey">Copy</button>
+            </dd>
+          </div>
+          <div>
+            <dt>Fund minimum</dt>
+            <dd>≥ <span id="welcomeMinSol">0.02</span> SOL on this address</dd>
+          </div>
+        </dl>
+        <p class="welcome-note">
+          Your API key and signing keys are saved to this account. Open <strong>Account</strong> in the top right anytime to view them.
+          Keep this password private. It unlocks those keys on this machine.
+        </p>
+        <a class="auth-submit continue-link" id="continueLink" href="/">Continue to Strategy Tester</a>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const form = document.getElementById("authForm");
+    const emailInput = document.getElementById("email");
+    const passwordInput = document.getElementById("password");
+    const authError = document.getElementById("authError");
+    const authSubmit = document.getElementById("authSubmit");
+    const authTitle = document.getElementById("authTitle");
+    const authLead = document.getElementById("authLead");
+    const welcomePanel = document.getElementById("welcomePanel");
+    let mode = "login";
+
+    function setMode(next) {
+      mode = next;
+      document.querySelectorAll(".auth-tab").forEach((btn) => {
+        const on = btn.dataset.mode === mode;
+        btn.classList.toggle("active", on);
+        btn.setAttribute("aria-selected", on ? "true" : "false");
+      });
+      authError.hidden = true;
+      if (mode === "register") {
+        authTitle.textContent = "Create account";
+        authLead.textContent = "Choose an email and password to get started.";
+        authSubmit.textContent = "Create account";
+        passwordInput.autocomplete = "new-password";
+      } else {
+        authTitle.textContent = "Sign in";
+        authLead.textContent = "Sign in with your email and password to open the desk.";
+        authSubmit.textContent = "Sign in";
+        passwordInput.autocomplete = "current-password";
+      }
+    }
+
+    document.querySelectorAll(".auth-tab").forEach((btn) => {
+      btn.addEventListener("click", () => setMode(btn.dataset.mode));
+    });
+
+    function showError(msg) {
+      authError.hidden = !msg;
+      authError.textContent = msg || "";
+    }
+
+    function showWelcome(data) {
+      form.hidden = true;
+      document.querySelector(".auth-tabs").hidden = true;
+      document.getElementById("guestContinue").hidden = true;
+      authTitle.textContent = "Welcome";
+      authLead.textContent = "Your trading wallet is ready. Save this address and fund it before Test or Trade.";
+      welcomePanel.hidden = false;
+      document.getElementById("welcomeEmail").textContent = data.email || "";
+      document.getElementById("welcomePubkey").textContent = data.wallet_pubkey || "";
+      if (data.pp_min_sol != null) {
+        document.getElementById("welcomeMinSol").textContent = String(data.pp_min_sol);
+      }
+    }
+
+    document.getElementById("guestContinue").addEventListener("click", async () => {
+      showError("");
+      const btn = document.getElementById("guestContinue");
+      btn.disabled = true;
+      btn.textContent = "Continuing…";
+      try {
+        const res = await fetch("/api/auth/guest", { method: "POST" });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) {
+          showError(data.message || `Could not continue (${res.status})`);
+          return;
+        }
+        window.location.href = "/";
+      } catch (err) {
+        showError(err && err.message ? err.message : String(err));
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Continue without an account";
+      }
+    });
+
+    document.querySelectorAll(".copy-btn").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const el = document.getElementById(btn.dataset.copy);
+        const text = el ? el.textContent : "";
+        try {
+          await navigator.clipboard.writeText(text);
+          btn.textContent = "Copied";
+          setTimeout(() => { btn.textContent = "Copy"; }, 1200);
+        } catch (_) {
+          btn.textContent = "Failed";
+          setTimeout(() => { btn.textContent = "Copy"; }, 1200);
+        }
+      });
+    });
+
+    form.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      showError("");
+      const email = emailInput.value.trim();
+      const password = passwordInput.value;
+      if (!email || !password) {
+        showError("Enter email and password.");
+        return;
+      }
+      if (mode === "register" && password.length < 8) {
+        showError("Password must be at least 8 characters.");
+        return;
+      }
+      authSubmit.disabled = true;
+      authSubmit.textContent = mode === "register" ? "Creating account…" : "Signing in…";
+      try {
+        const res = await fetch(mode === "register" ? "/api/auth/register" : "/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) {
+          showError(data.message || `Request failed (${res.status})`);
+          return;
+        }
+        if (mode === "register" || data.is_new) {
+          showWelcome(data);
+        } else {
+          window.location.href = "/";
+        }
+      } catch (err) {
+        showError(err && err.message ? err.message : String(err));
+      } finally {
+        authSubmit.disabled = false;
+        authSubmit.textContent = mode === "register" ? "Create account" : "Sign in";
+      }
+    });
+  </script>
+</body>
+</html>
