@@ -1,5 +1,5 @@
 
-#
+# start - 95,480,866
 
 
 """Flask UI for live paper strategy testing + free simulator + real trade."""
@@ -120,6 +120,7 @@ def _sse_payload(snap: dict) -> dict:
         "trade_msg_count": snap.get("trade_msg_count", 0),
         "pnl_sol": snap.get("pnl_sol"),
         "unrealized_pnl_sol": snap.get("unrealized_pnl_sol"),
+        "wallet_sol": snap.get("wallet_sol"),
     }
 
 

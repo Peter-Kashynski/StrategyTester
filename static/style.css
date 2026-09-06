@@ -26,27 +26,163 @@ body {
 }
 header {
   flex: 0 0 auto;
-  padding: 1rem 1.5rem 0.9rem;
+  padding: 1.05rem 1.5rem 0.75rem;
   border-bottom: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
+  gap: 0.55rem;
   position: relative;
 }
 .header-top {
   display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem 1.25rem;
+  min-height: 2.85rem;
+}
+.header-top-left {
+  display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 0.75rem 1rem;
-  padding-right: min(380px, 48vw);
+  gap: 0.65rem 0.75rem;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.header-top-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.35rem;
+  min-width: 0;
+  flex: 0 0 auto;
+}
+.header-user-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.header-wallet-balance {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel) 90%, var(--bg));
+  font-size: 1.05rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  white-space: nowrap;
+}
+.header-wallet-balance[hidden] { display: none !important; }
+.header-wallet-balance-value {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.28rem;
+  line-height: 1;
+}
+.header-balance-num { font-weight: inherit; }
+.header-balance-unit {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--muted);
 }
 header h1 {
   margin: 0;
-  font-size: 1.25rem;
+  font-size: 1.15rem;
   font-weight: 600;
   letter-spacing: -0.02em;
+  white-space: nowrap;
 }
-.header-status { color: var(--muted); font-size: 0.9rem; }
+.mode-tabs {
+  display: inline-flex;
+  gap: 0.25rem;
+  padding: 0.2rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg) 55%, var(--panel));
+  margin-left: 0;
+}
+.mode-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.14rem;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  padding: 0.38rem 1.05rem 0.34rem;
+  border-radius: 999px;
+  cursor: pointer;
+  min-width: 0;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.mode-tab-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  line-height: 1.1;
+}
+.mode-tab-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  line-height: inherit;
+  white-space: nowrap;
+}
+.mode-tab-hint {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: color-mix(in srgb, var(--muted) 88%, var(--text));
+  letter-spacing: 0.02em;
+  text-transform: none;
+  line-height: 1.15;
+  max-width: none;
+  padding: 0 0.1rem;
+  text-align: center;
+  white-space: nowrap;
+}
+.mode-tab-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--buy);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--buy) 85%, transparent);
+  flex: 0 0 auto;
+}
+.mode-tab-dot[hidden] { display: none !important; }
+.mode-tab:hover { color: var(--text); }
+.mode-tab:hover .mode-tab-hint {
+  color: color-mix(in srgb, var(--text) 45%, var(--muted));
+}
+.mode-tab.active {
+  background: color-mix(in srgb, var(--accent) 22%, var(--panel));
+  color: var(--text);
+}
+.mode-tab.active .mode-tab-hint {
+  color: color-mix(in srgb, var(--text) 50%, var(--muted));
+}
+.mode-tab[data-mode="trade"].active {
+  background: color-mix(in srgb, var(--accent) 22%, var(--panel));
+}
+.mode-tab[data-mode="trade"].active .mode-tab-label {
+  color: var(--sell);
+}
+.header-status { color: var(--muted); font-size: 0.82rem; }
+@media (max-width: 960px) {
+  .header-top {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .header-top-right { align-items: stretch; }
+  .header-user-row { justify-content: flex-end; }
+}
 .header-user {
   display: flex;
   align-items: center;
@@ -67,10 +203,10 @@ header h1 {
   background: transparent;
   color: var(--muted);
   font: inherit;
-  font-size: 0.72rem;
+  font-size: 0.95rem;
   font-weight: 600;
-  padding: 0.28rem 0.55rem;
-  border-radius: 6px;
+  padding: 0.5rem 0.9rem;
+  border-radius: 8px;
   cursor: pointer;
   text-decoration: none;
 }
@@ -200,55 +336,6 @@ header h1 {
 #accountCredsFields[hidden],
 .account-using-note[hidden] {
   display: none !important;
-}
-.header-balance {
-  position: absolute;
-  top: 0.85rem;
-  right: 1.5rem;
-  z-index: 5;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 0.3rem;
-  width: min(340px, calc(100vw - 2rem));
-}
-.header-balance-row {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  width: 100%;
-  justify-content: flex-end;
-}
-.header-balance input {
-  flex: 1 1 auto;
-  min-width: 0;
-  max-width: 240px;
-  padding: 0.35rem 0.5rem;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--panel);
-  color: var(--text);
-  font-size: 0.75rem;
-  font-family: ui-monospace, Consolas, monospace;
-}
-.header-balance .wallet-check-btn {
-  flex: 0 0 auto;
-  width: auto;
-  padding: 0.35rem 0.65rem;
-  font-size: 0.75rem;
-}
-.header-balance-result {
-  font-size: 0.72rem;
-  color: var(--muted);
-  text-align: right;
-  line-height: 1.35;
-  max-width: 100%;
-}
-.header-balance-result.warn { color: var(--sell); }
-.header-balance-error {
-  font-size: 0.68rem;
-  text-align: right;
-  max-width: 100%;
 }
 .fold-section {
   margin-top: 0.55rem;
@@ -603,110 +690,6 @@ header h1 {
 .trade-wallet-fields input.is-invalid {
   border-color: var(--sell);
   background: color-mix(in srgb, var(--sell) 10%, var(--bg));
-}
-.mode-tab[data-mode="trade"].active {
-  color: var(--sell);
-}
-.wallet-check {
-  margin: 0 0 1rem;
-  padding: 0.85rem 0.9rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--bg) 55%, var(--panel));
-}
-.wallet-check[hidden] { display: none; }
-.wallet-check .section-title {
-  margin-top: 0;
-  margin-bottom: 0.65rem;
-}
-.wallet-check-fields {
-  display: grid;
-  gap: 0.55rem;
-}
-.wallet-check-fields label {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  font-size: 0.65rem;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-.wallet-check-fields input {
-  width: 100%;
-  padding: 0.45rem 0.55rem;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg);
-  color: var(--text);
-  font-size: 0.8rem;
-  font-family: ui-monospace, Consolas, monospace;
-  text-transform: none;
-  letter-spacing: 0;
-}
-.wallet-check-fields input:focus {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent);
-}
-.wallet-check-fields input.is-invalid {
-  border-color: var(--sell);
-  background: color-mix(in srgb, var(--sell) 10%, var(--bg));
-}
-.wallet-check-btn {
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--text);
-  font-size: 0.78rem;
-  font-weight: 600;
-  padding: 0.45rem 0.7rem;
-  border-radius: 6px;
-  cursor: pointer;
-}
-.wallet-check-btn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-.wallet-check-btn:disabled {
-  opacity: 0.55;
-  cursor: wait;
-}
-.wallet-check-result {
-  margin: 0;
-  font-size: 0.78rem;
-  line-height: 1.4;
-  color: var(--text);
-  text-transform: none;
-  letter-spacing: 0;
-  font-family: ui-monospace, Consolas, monospace;
-}
-.wallet-check-result.warn { color: var(--skip); }
-.wallet-check-result[hidden] { display: none; }
-.mode-tabs {
-  display: inline-flex;
-  gap: 0.25rem;
-  padding: 0.2rem;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--bg) 55%, var(--panel));
-  margin-left: 0.25rem;
-}
-.mode-tab {
-  border: none;
-  background: transparent;
-  color: var(--muted);
-  font-size: 0.78rem;
-  font-weight: 600;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  padding: 0.35rem 0.85rem;
-  border-radius: 999px;
-  cursor: pointer;
-}
-.mode-tab:hover { color: var(--text); }
-.mode-tab.active {
-  background: color-mix(in srgb, var(--accent) 22%, var(--panel));
-  color: var(--text);
 }
 .layout {
   display: grid;

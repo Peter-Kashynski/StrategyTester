@@ -64,6 +64,45 @@ class TradeBot:
         self._session_start_equity = 0.0
         self._buy_limit_hit = False
         self._wallet_stop_hit = False
+        self._new_token_feed_paused = False
+        self._cached_wallet_sol: float | None = None
+        self._wallet_sol_updated_at = 0.0
+
+    def _open_position_mints(self) -> set[str]:
+        with self._lock:
+            return set(self.open_positions.keys())
+
+    async def _pause_new_token_feed(self, websocket) -> None:
+        if self._new_token_feed_paused:
+            return
+        try:
+            await websocket.send(json.dumps({"method": "unsubscribeNewToken"}))
+            await websocket.send(json.dumps({"method": "unsubscribeMigration"}))
+        except Exception:
+            pass
+        self._new_token_feed_paused = True
+
+    async def _resume_open_position_streams(
+        self,
+        websocket,
+        watched_tokens: set,
+    ) -> None:
+        for mint in self._open_position_mints():
+            await self._watch_token(websocket, watched_tokens, mint)
+
+    async def _refresh_wallet_sol_cache(self, *, force: bool = False) -> None:
+        if not self._wallet_pubkey:
+            return
+        now = time.time()
+        if not force and now - self._wallet_sol_updated_at < 15:
+            return
+        try:
+            sol = await get_wallet_sol(self._wallet_pubkey)
+        except Exception:
+            return
+        if sol is not None:
+            self._cached_wallet_sol = float(sol)
+            self._wallet_sol_updated_at = now
 
     async def _current_session_equity(self) -> float:
         try:
@@ -98,40 +137,87 @@ class TradeBot:
             return (drop / start) * 100 >= float(params.wallet_stop_value)
         return drop >= float(params.wallet_stop_value)
 
-    async def _can_buy_new(self) -> bool:
-        if self._buy_limit_hit or self._wallet_stop_hit:
-            return False
+    def _entries_blocked(self) -> bool:
+        return self._buy_limit_hit or self._wallet_stop_hit
+
+    async def _pause_entry_subscriptions(self) -> None:
+        ws = getattr(self, "_feed_ws", None)
+        watched = getattr(self, "_watched_tokens", None)
+        if ws is None:
+            return
+        await self._pause_new_token_feed(ws)
+        if watched is None:
+            return
+        keep = self._open_position_mints()
+        to_drop = [m for m in list(watched) if m not in keep]
+        if to_drop:
+            await self._unwatch_tokens(
+                ws, watched, to_drop, reason="no new entries"
+            )
+
+    async def _ensure_buy_limit_paused(self) -> None:
         params = self.params
-        if params.use_max_buys:
-            with self._lock:
-                count = self.buy_count
-            if count >= int(params.max_buys):
-                if not self._buy_limit_hit:
-                    self._buy_limit_hit = True
-                    self._log(
-                        f"Buy limit reached ({int(params.max_buys)} coins) — no new entries",
-                        "status",
-                    )
-                return False
-        if params.use_wallet_stop:
-            equity = await self._current_session_equity()
-            if self._wallet_stop_triggered(equity):
-                if not self._wallet_stop_hit:
-                    self._wallet_stop_hit = True
-                    drop = self._session_start_equity - equity
-                    if params.wallet_stop_is_pct:
-                        pct = (drop / self._session_start_equity) * 100 if self._session_start_equity else 0
-                        self._log(
-                            f"Wallet stop loss hit ({pct:.2f}% SOL down) — no new entries",
-                            "status",
-                        )
-                    else:
-                        self._log(
-                            f"Wallet stop loss hit ({drop:.6f} SOL down) — no new entries",
-                            "status",
-                        )
-                return False
+        if not params.use_max_buys:
+            return
+        with self._lock:
+            if self.buy_count < int(params.max_buys):
+                return
+        if not self._buy_limit_hit:
+            self._buy_limit_hit = True
+            self._log(
+                f"Buy limit reached ({int(params.max_buys)} coins) — no new entries",
+                "status",
+            )
+        await self._pause_entry_subscriptions()
+        await self._maybe_auto_stop_after_buy_limit()
+
+    async def _ensure_wallet_stop_paused(self) -> None:
+        if self._wallet_stop_hit:
+            await self._pause_entry_subscriptions()
+            return
+        params = self.params
+        if not params.use_wallet_stop:
+            return
+        equity = await self._current_session_equity()
+        if not self._wallet_stop_triggered(equity):
+            return
+        self._wallet_stop_hit = True
+        drop = self._session_start_equity - equity
+        if params.wallet_stop_is_pct:
+            pct = (drop / self._session_start_equity) * 100 if self._session_start_equity else 0
+            self._log(
+                f"Wallet stop loss hit ({pct:.2f}% SOL down) — no new entries",
+                "status",
+            )
+        else:
+            self._log(
+                f"Wallet stop loss hit ({drop:.6f} SOL down) — no new entries",
+                "status",
+            )
+        await self._pause_entry_subscriptions()
+
+    async def _can_buy_new(self) -> bool:
+        if self._entries_blocked():
+            return False
+        await self._ensure_buy_limit_paused()
+        if self._buy_limit_hit:
+            return False
+        await self._ensure_wallet_stop_paused()
+        if self._wallet_stop_hit:
+            return False
         return True
+
+    async def _maybe_auto_stop_after_buy_limit(self) -> None:
+        if not self.params.use_max_buys or not self._buy_limit_hit:
+            return
+        with self._lock:
+            if self.open_positions or not self.running:
+                return
+        self._log(
+            "Buy limit reached and all positions closed — stopping bot",
+            "status",
+        )
+        self._stop.set()
 
     def _log(self, message: str, kind: str = "info") -> None:
         with self._lock:
@@ -179,6 +265,7 @@ class TradeBot:
                 "buy_count": self.buy_count,
                 "buy_limit_hit": self._buy_limit_hit,
                 "wallet_stop_hit": self._wallet_stop_hit,
+                "wallet_sol": self._cached_wallet_sol,
             }
 
     def start(
@@ -264,6 +351,9 @@ class TradeBot:
             self._session_start_equity = float(wallet_sol)
             self._buy_limit_hit = False
             self._wallet_stop_hit = False
+            self._new_token_feed_paused = False
+            self._cached_wallet_sol = float(wallet_sol)
+            self._wallet_sol_updated_at = time.time()
             self.open_positions = {}
             self.trades = []
             self.events = []
@@ -323,6 +413,8 @@ class TradeBot:
         return usd_mc <= params.mc_max
 
     async def _watch_token(self, websocket, watched_tokens: set, mint: str) -> None:
+        if self._entries_blocked() and mint not in self._open_position_mints():
+            return
         if mint in watched_tokens:
             return
         watched_tokens.add(mint)
@@ -532,18 +624,32 @@ class TradeBot:
                         self._log("PumpPortal API key accepted for trade streams", "status")
                         self._log(f"Connected feed — SOL ${sol_price}", "status")
 
-                    await websocket.send(json.dumps({"method": "subscribeNewToken"}))
-                    await websocket.send(json.dumps({"method": "subscribeMigration"}))
-                    self._log("Subscribed to new tokens", "status")
+                    self._new_token_feed_paused = False
+                    if not self._entries_blocked():
+                        await websocket.send(json.dumps({"method": "subscribeNewToken"}))
+                        await websocket.send(json.dumps({"method": "subscribeMigration"}))
+                        self._log("Subscribed to new tokens", "status")
+                    else:
+                        self._new_token_feed_paused = True
+                        self._log("New token feed paused — no new entries", "status")
+                        await self._resume_open_position_streams(
+                            websocket, watched_tokens
+                        )
 
                     while not self._should_stop():
                         try:
                             raw = await asyncio.wait_for(websocket.recv(), timeout=1.0)
                         except asyncio.TimeoutError:
+                            await self._refresh_wallet_sol_cache()
                             await self._check_stagnation()
+                            await self._maybe_auto_stop_after_buy_limit()
                             continue
 
+                        await self._refresh_wallet_sol_cache()
                         await self._check_stagnation()
+                        await self._maybe_auto_stop_after_buy_limit()
+                        if self._should_stop():
+                            break
 
                         try:
                             data = json.loads(raw)
@@ -588,7 +694,7 @@ class TradeBot:
                                 creation_time[mint] = now
                             if usd_mc and mint not in ath_tracker:
                                 ath_tracker[mint] = usd_mc
-                            if self._should_watch_create(usd_mc, params):
+                            if not self._entries_blocked() and self._should_watch_create(usd_mc, params):
                                 await self._watch_token(websocket, watched_tokens, mint)
                             continue
 
@@ -778,6 +884,7 @@ class TradeBot:
                                 "buy_tx": tx_sig,
                             }
                             self.buy_count += 1
+                        await self._ensure_buy_limit_paused()
                         self._log(
                             f"BUY OK {ticker} @ MC {entry} | {spent_note}"
                             f"{boost_note} — {link}",
@@ -968,6 +1075,7 @@ class TradeBot:
             watched = getattr(self, "_watched_tokens", None)
             if ws is not None and watched is not None:
                 await self._unwatch_tokens(ws, watched, [mint], reason="position closed")
+        await self._maybe_auto_stop_after_buy_limit()
         return True, f"Sold {sell_pct}%"
 
 

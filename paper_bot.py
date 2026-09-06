@@ -167,6 +167,29 @@ class PaperBot:
         self._session_start_equity = 0.0
         self._buy_limit_hit = False
         self._wallet_stop_hit = False
+        self._new_token_feed_paused = False
+
+    def _open_position_mints(self) -> set[str]:
+        with self._lock:
+            return set(self.open_positions.keys())
+
+    async def _pause_new_token_feed(self, websocket) -> None:
+        if self._new_token_feed_paused:
+            return
+        try:
+            await websocket.send(json.dumps({"method": "unsubscribeNewToken"}))
+            await websocket.send(json.dumps({"method": "unsubscribeMigration"}))
+        except Exception:
+            pass
+        self._new_token_feed_paused = True
+
+    async def _resume_open_position_streams(
+        self,
+        websocket,
+        watched_tokens: set,
+    ) -> None:
+        for mint in self._open_position_mints():
+            await self._watch_token(websocket, watched_tokens, mint)
 
     def _paper_session_equity(self) -> float:
         with self._lock:
@@ -194,40 +217,87 @@ class PaperBot:
             return (drop / start) * 100 >= float(params.wallet_stop_value)
         return drop >= float(params.wallet_stop_value)
 
-    async def _can_buy_new(self) -> bool:
-        if self._buy_limit_hit or self._wallet_stop_hit:
-            return False
+    def _entries_blocked(self) -> bool:
+        return self._buy_limit_hit or self._wallet_stop_hit
+
+    async def _pause_entry_subscriptions(self) -> None:
+        ws = getattr(self, "_feed_ws", None)
+        watched = getattr(self, "_watched_tokens", None)
+        if ws is None:
+            return
+        await self._pause_new_token_feed(ws)
+        if watched is None:
+            return
+        keep = self._open_position_mints()
+        to_drop = [m for m in list(watched) if m not in keep]
+        if to_drop:
+            await self._unwatch_tokens(
+                ws, watched, to_drop, reason="no new entries"
+            )
+
+    async def _ensure_buy_limit_paused(self) -> None:
         params = self.params
-        if params.use_max_buys:
-            with self._lock:
-                count = self.buy_count
-            if count >= int(params.max_buys):
-                if not self._buy_limit_hit:
-                    self._buy_limit_hit = True
-                    self._log(
-                        f"Buy limit reached ({int(params.max_buys)} coins) — no new entries",
-                        "status",
-                    )
-                return False
-        if params.use_wallet_stop:
-            equity = self._paper_session_equity()
-            if self._wallet_stop_triggered(equity):
-                if not self._wallet_stop_hit:
-                    self._wallet_stop_hit = True
-                    drop = self._session_start_equity - equity
-                    if params.wallet_stop_is_pct:
-                        pct = (drop / self._session_start_equity) * 100 if self._session_start_equity else 0
-                        self._log(
-                            f"Wallet stop loss hit ({pct:.2f}% down) — no new entries",
-                            "status",
-                        )
-                    else:
-                        self._log(
-                            f"Wallet stop loss hit ({drop:.4f} down) — no new entries",
-                            "status",
-                        )
-                return False
+        if not params.use_max_buys:
+            return
+        with self._lock:
+            if self.buy_count < int(params.max_buys):
+                return
+        if not self._buy_limit_hit:
+            self._buy_limit_hit = True
+            self._log(
+                f"Buy limit reached ({int(params.max_buys)} coins) — no new entries",
+                "status",
+            )
+        await self._pause_entry_subscriptions()
+        await self._maybe_auto_stop_after_buy_limit()
+
+    async def _ensure_wallet_stop_paused(self) -> None:
+        if self._wallet_stop_hit:
+            await self._pause_entry_subscriptions()
+            return
+        params = self.params
+        if not params.use_wallet_stop:
+            return
+        equity = self._paper_session_equity()
+        if not self._wallet_stop_triggered(equity):
+            return
+        self._wallet_stop_hit = True
+        drop = self._session_start_equity - equity
+        if params.wallet_stop_is_pct:
+            pct = (drop / self._session_start_equity) * 100 if self._session_start_equity else 0
+            self._log(
+                f"Wallet stop loss hit ({pct:.2f}% paper balance down) — no new entries",
+                "status",
+            )
+        else:
+            self._log(
+                f"Wallet stop loss hit ({drop:.4f} paper balance down) — no new entries",
+                "status",
+            )
+        await self._pause_entry_subscriptions()
+
+    async def _can_buy_new(self) -> bool:
+        if self._entries_blocked():
+            return False
+        await self._ensure_buy_limit_paused()
+        if self._buy_limit_hit:
+            return False
+        await self._ensure_wallet_stop_paused()
+        if self._wallet_stop_hit:
+            return False
         return True
+
+    async def _maybe_auto_stop_after_buy_limit(self) -> None:
+        if not self.params.use_max_buys or not self._buy_limit_hit:
+            return
+        with self._lock:
+            if self.open_positions or not self.running:
+                return
+        self._log(
+            "Buy limit reached and all positions closed — stopping bot",
+            "status",
+        )
+        self._stop.set()
 
     def _log(self, message: str, kind: str = "info") -> None:
         with self._lock:
@@ -292,6 +362,7 @@ class PaperBot:
             self._session_start_equity = float(params.starting_balance)
             self._buy_limit_hit = False
             self._wallet_stop_hit = False
+            self._new_token_feed_paused = False
             self.open_positions = {}
             self.trades = []
             if TEST_TRADES_FILL:
@@ -335,7 +406,7 @@ class PaperBot:
         if self._loop and self._loop.is_running():
             self._loop.call_soon_threadsafe(lambda: None)
         if self._thread:
-            self._thread.join(timeout=8)
+            self._thread.join(timeout=30)
         with self._lock:
             self.running = False
             self.open_positions = {}
@@ -372,6 +443,8 @@ class PaperBot:
         watched_tokens: set,
         mint: str,
     ) -> None:
+        if self._entries_blocked() and mint not in self._open_position_mints():
+            return
         if mint in watched_tokens:
             return
         watched_tokens.add(mint)
@@ -515,18 +588,30 @@ class PaperBot:
                         self._log("PumpPortal API key accepted for trade streams", "status")
                         self._log(f"Connected feed — SOL ${sol_price}", "status")
 
-                    await websocket.send(json.dumps({"method": "subscribeNewToken"}))
-                    await websocket.send(json.dumps({"method": "subscribeMigration"}))
-                    self._log("Subscribed to new tokens", "status")
+                    self._new_token_feed_paused = False
+                    if not self._entries_blocked():
+                        await websocket.send(json.dumps({"method": "subscribeNewToken"}))
+                        await websocket.send(json.dumps({"method": "subscribeMigration"}))
+                        self._log("Subscribed to new tokens", "status")
+                    else:
+                        self._new_token_feed_paused = True
+                        self._log("New token feed paused — no new entries", "status")
+                        await self._resume_open_position_streams(
+                            websocket, watched_tokens
+                        )
 
                     while not self._should_stop():
                         try:
                             raw = await asyncio.wait_for(websocket.recv(), timeout=1.0)
                         except asyncio.TimeoutError:
                             await self._check_stagnation()
+                            await self._maybe_auto_stop_after_buy_limit()
                             continue
 
                         await self._check_stagnation()
+                        await self._maybe_auto_stop_after_buy_limit()
+                        if self._should_stop():
+                            break
 
                         try:
                             data = json.loads(raw)
@@ -574,7 +659,7 @@ class PaperBot:
                             if usd_mc and mint not in ath_tracker:
                                 ath_tracker[mint] = usd_mc
 
-                            if self._should_watch_create(usd_mc, params):
+                            if not self._entries_blocked() and self._should_watch_create(usd_mc, params):
                                 await self._watch_token(
                                     websocket, watched_tokens, mint
                                 )
@@ -745,6 +830,7 @@ class PaperBot:
                                 "boost_reasons": boost_reasons,
                             }
                             self.buy_count += 1
+                        await self._ensure_buy_limit_paused()
                         boost_note = (
                             f" (×{boost_mult:g}: {', '.join(boost_reasons)})"
                             if boosted
@@ -764,9 +850,21 @@ class PaperBot:
                 self._log(f"Unexpected error: {e}", "error")
                 await asyncio.sleep(1)
 
+        await self._force_sell_open()
         self._feed_ws = None
         self._watched_tokens = None
         self._log("Feed loop exited", "status")
+
+    async def _force_sell_open(self) -> None:
+        with self._lock:
+            mints = list(self.open_positions.keys())
+        for mint in mints:
+            with self._lock:
+                pos = self.open_positions.get(mint)
+            if not pos:
+                continue
+            exit_mc = float(pos.get("current_mc") or pos.get("entry_mc") or 0)
+            await self._close_position(mint, exit_mc, "Test stopped")
 
     async def _check_stagnation(self) -> None:
         with self._lock:
@@ -920,6 +1018,7 @@ class PaperBot:
                 await self._unwatch_tokens(
                     ws, watched, [record.mint], reason="position closed"
                 )
+        await self._maybe_auto_stop_after_buy_limit()
         return True, f"Sold {pct_sold}%"
 
 

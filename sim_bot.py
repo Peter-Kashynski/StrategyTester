@@ -48,70 +48,52 @@ class SimBot:
         self._thread: threading.Thread | None = None
         self.trade_msg_count = 0
         self.buy_count = 0
-        self._session_start_equity = 0.0
         self._buy_limit_hit = False
-        self._wallet_stop_hit = False
+        self._sim_coins: dict | None = None
 
-    def _paper_session_equity(self) -> float:
+    def _prune_sim_pipeline(self) -> None:
+        coins = self._sim_coins
+        if not coins or not self._buy_limit_hit:
+            return
         with self._lock:
-            equity = float(self.balance)
-            positions = list(self.open_positions.values())
-        for pos in positions:
-            entry = float(pos.get("entry_mc") or 0)
-            current = float(pos.get("current_mc") or 0)
-            units = float(pos.get("entry_units") or 0)
-            if entry > 0 and units:
-                equity += units * ((current - entry) / entry / 100)
-        return equity
+            open_mints = set(self.open_positions.keys())
+        for mint, coin in list(coins.items()):
+            if mint not in open_mints and not coin.get("done"):
+                coin["done"] = True
 
-    def _wallet_stop_triggered(self, current_equity: float) -> bool:
+    def _ensure_buy_limit_paused(self) -> None:
         params = self.params
-        if not params.use_wallet_stop:
-            return False
-        start = self._session_start_equity
-        if start <= 0:
-            return False
-        drop = start - current_equity
-        if drop <= 0:
-            return False
-        if params.wallet_stop_is_pct:
-            return (drop / start) * 100 >= float(params.wallet_stop_value)
-        return drop >= float(params.wallet_stop_value)
+        if not params.use_max_buys:
+            return
+        with self._lock:
+            if self.buy_count < int(params.max_buys):
+                return
+        if not self._buy_limit_hit:
+            self._buy_limit_hit = True
+            self._log(
+                f"Buy limit reached ({int(params.max_buys)} coins) — no new entries",
+                "status",
+            )
+        self._prune_sim_pipeline()
+        self._maybe_auto_stop_after_buy_limit()
 
     def _can_buy_new(self) -> bool:
-        if self._buy_limit_hit or self._wallet_stop_hit:
+        if self._buy_limit_hit:
             return False
-        params = self.params
-        if params.use_max_buys:
-            with self._lock:
-                count = self.buy_count
-            if count >= int(params.max_buys):
-                if not self._buy_limit_hit:
-                    self._buy_limit_hit = True
-                    self._log(
-                        f"Buy limit reached ({int(params.max_buys)} coins) — no new entries",
-                        "status",
-                    )
-                return False
-        if params.use_wallet_stop:
-            equity = self._paper_session_equity()
-            if self._wallet_stop_triggered(equity):
-                if not self._wallet_stop_hit:
-                    self._wallet_stop_hit = True
-                    drop = self._session_start_equity - equity
-                    if params.wallet_stop_is_pct:
-                        pct = (drop / self._session_start_equity) * 100 if self._session_start_equity else 0
-                        self._log(
-                            f"Wallet stop loss hit ({pct:.2f}% down) — no new entries",
-                            "status",
-                        )
-                    else:
-                        self._log(
-                            f"Wallet stop loss hit ({drop:.4f} down) — no new entries",
-                            "status",
-                        )
-                return False
-        return True
+        self._ensure_buy_limit_paused()
+        return not self._buy_limit_hit
+
+    def _maybe_auto_stop_after_buy_limit(self) -> None:
+        if not self.params.use_max_buys or not self._buy_limit_hit:
+            return
+        with self._lock:
+            if self.open_positions or not self.running:
+                return
+        self._log(
+            "Buy limit reached and all positions closed — stopping bot",
+            "status",
+        )
+        self._stop.set()
 
     def _log(self, message: str, kind: str = "status") -> None:
         with self._lock:
@@ -145,7 +127,6 @@ class SimBot:
                 "trade_msg_count": self.trade_msg_count,
                 "buy_count": self.buy_count,
                 "buy_limit_hit": self._buy_limit_hit,
-                "wallet_stop_hit": self._wallet_stop_hit,
             }
 
     def start(self, params: StrategyParams) -> tuple[bool, str]:
@@ -157,9 +138,8 @@ class SimBot:
             self.coins_sold = 0
             self.trade_msg_count = 0
             self.buy_count = 0
-            self._session_start_equity = float(params.starting_balance)
             self._buy_limit_hit = False
-            self._wallet_stop_hit = False
+            self._sim_coins = None
             self.open_positions = {}
             self.trades = []
             self.events = []
@@ -196,6 +176,7 @@ class SimBot:
 
     def _run(self) -> None:
         coins: dict[str, dict[str, Any]] = {}
+        self._sim_coins = coins
         volume_history: dict = {}
         top_ten_holders: dict = {}
         next_spawn = time.time() + 0.4
@@ -204,7 +185,7 @@ class SimBot:
             now = time.time()
             params = self.params
 
-            if now >= next_spawn and len(coins) < 18:
+            if now >= next_spawn and len(coins) < 18 and not self._buy_limit_hit:
                 self._spawn_coin(coins, volume_history, top_ten_holders, params)
                 next_spawn = now + random.uniform(1.2, 3.5)
 
@@ -225,6 +206,9 @@ class SimBot:
                 top_ten_holders.pop(mint, None)
 
             self._check_stagnation()
+            self._maybe_auto_stop_after_buy_limit()
+            if self._stop.is_set():
+                break
             time.sleep(0.2)
 
         # Force-close leftover positions on stop
@@ -238,6 +222,7 @@ class SimBot:
                 self._close_position(mint, mc, "Sim stopped")
 
         self._log("Sim loop exited", "status")
+        self._sim_coins = None
 
     def _spawn_coin(
         self,
@@ -246,6 +231,8 @@ class SimBot:
         top_ten_holders: dict,
         params: StrategyParams,
     ) -> None:
+        if self._buy_limit_hit:
+            return
         mint = _fake_mint()
         ticker = mint[:3].upper()
         link = f"https://pump.fun/coin/{mint}"
@@ -462,6 +449,7 @@ class SimBot:
                 "boost_reasons": boost_reasons,
             }
             self.buy_count += 1
+        self._ensure_buy_limit_paused()
         boost_note = (
             f" (×{boost_mult:g}: {', '.join(boost_reasons)})"
             if boosted
@@ -609,6 +597,7 @@ class SimBot:
         )
         if full_close:
             self._log(f"Unsubscribed 1 token(s) — position closed — {record.link}", "unsub")
+        self._maybe_auto_stop_after_buy_limit()
         return True, f"Sold {pct_sold}%"
 
 

@@ -9,28 +9,46 @@
 <body>
   <header>
     <div class="header-top">
-      <h1>Strategy Tester</h1>
-      <nav class="mode-tabs" role="tablist" aria-label="Feed mode">
-        <button type="button" class="mode-tab active" data-mode="sim" role="tab" aria-selected="true">Simulate</button>
-        <button type="button" class="mode-tab" data-mode="live" role="tab" aria-selected="false">Test</button>
-        <button type="button" class="mode-tab" data-mode="trade" role="tab" aria-selected="false">Trade</button>
-      </nav>
-      <button type="button" class="mode-help-btn" id="modeHelpBtn" aria-expanded="false" aria-controls="modeBlurb" title="About this tab">?</button>
-      <span class="header-status"><span class="dot" id="runDot"></span><span id="runLabel">Stopped</span> · <span id="modeHint">simulate · free (no PumpPortal)</span></span>
-      <div class="header-user" id="headerUser">
-        {% if has_account %}
-        <button type="button" class="account-btn" id="accountBtn" aria-expanded="false" aria-controls="accountPanel">Account</button>
-        {% else %}
-        <a class="account-btn sign-in-link" id="signInLink" href="/login">Sign in</a>
-        {% endif %}
+      <div class="header-top-left">
+        <h1>Strategy Tester</h1>
+        <nav class="mode-tabs" role="tablist" aria-label="Feed mode">
+          <button type="button" class="mode-tab active" data-mode="sim" role="tab" aria-selected="true">
+            <span class="mode-tab-head">
+              <span class="mode-tab-label">Simulate</span>
+              <span class="mode-tab-dot" hidden aria-hidden="true"></span>
+            </span>
+            <span class="mode-tab-hint">free · no PumpPortal</span>
+          </button>
+          <button type="button" class="mode-tab" data-mode="live" role="tab" aria-selected="false">
+            <span class="mode-tab-head">
+              <span class="mode-tab-label">Test</span>
+              <span class="mode-tab-dot" hidden aria-hidden="true"></span>
+            </span>
+            <span class="mode-tab-hint">paper · live feed</span>
+          </button>
+          <button type="button" class="mode-tab" data-mode="trade" role="tab" aria-selected="false">
+            <span class="mode-tab-head">
+              <span class="mode-tab-label">Trade</span>
+              <span class="mode-tab-dot" hidden aria-hidden="true"></span>
+            </span>
+            <span class="mode-tab-hint">real buys/sells</span>
+          </button>
+        </nav>
+        <button type="button" class="mode-help-btn" id="modeHelpBtn" aria-expanded="false" aria-controls="modeBlurb" title="About this tab">?</button>
       </div>
-      <div class="header-balance" id="walletCheckPanel">
-        <div class="header-balance-row">
-          <input id="walletCheckPubkey" type="text" autocomplete="off" spellcheck="false" placeholder="Wallet pubkey" />
-          <button type="button" class="wallet-check-btn" id="walletCheckBtn">Check SOL</button>
+      <div class="header-top-right">
+        <div class="header-user-row">
+          <div class="header-wallet-balance" id="headerAccountBalance" hidden aria-live="polite">
+            <span class="header-wallet-balance-value" id="headerBalanceValue">—</span>
+          </div>
+          <div class="header-user" id="headerUser">
+            {% if has_account %}
+            <button type="button" class="account-btn" id="accountBtn" aria-expanded="false" aria-controls="accountPanel">Account</button>
+            {% else %}
+            <a class="account-btn sign-in-link" id="signInLink" href="/login">Sign in</a>
+            {% endif %}
+          </div>
         </div>
-        <span class="field-error header-balance-error" id="walletCheckError" hidden></span>
-        <span class="wallet-check-result header-balance-result" id="walletCheckResult" hidden></span>
       </div>
     </div>
     <div class="account-panel" id="accountPanel" hidden>
@@ -250,7 +268,7 @@
             <div class="param-inputs single">
               <label>Coin limit <input name="max_buys" type="number" step="1" min="1" value="{{ defaults.max_buys }}" /></label>
             </div>
-            <p class="param-hint">Leave off to buy indefinitely. Open positions still exit normally when the limit is hit.</p>
+            <p class="param-hint">Leave off to buy indefinitely. When the limit is hit, the bot stops buying and auto-stops once all open positions sell.</p>
           </div>
 
           <div class="param wallet-stop-param" data-enable="use_wallet_stop">
@@ -655,11 +673,11 @@
       },
       use_max_buys: {
         title: "Max coins to buy",
-        body: "Cap how many coins the bot enters this run. When off, it keeps buying forever. Hitting the limit only blocks new entries — open positions still exit on your rules.",
+        body: "Cap how many coins the bot enters this run. When off, it keeps buying forever. After the limit is hit, no new entries — once every open position closes, the bot stops automatically (same as pressing Stop).",
       },
       use_wallet_stop: {
         title: "Wallet stop loss",
-        body: "Stop new buys when session equity drops by the set % or balance amount (includes unrealized open positions). Simulate/Test use paper balance + mark-to-market. Trade uses live wallet SOL. Does not force-sell open positions.",
+        bodyLive: "Stop new buys when paper session balance + open PnL drops by the set % or balance units vs start. Uses Start balance only — not your PumpPortal wallet. Does not force-sell open positions.",
         bodyTrade: "Stop new buys when signing-wallet SOL drops by the set % or SOL amount vs session start. Checked before each buy. Does not force-sell open positions.",
       },
       use_holder_checks: {
@@ -722,11 +740,10 @@
     const logEl = document.getElementById("log");
     const infoBackdrop = document.getElementById("infoBackdrop");
     const infoModal = document.getElementById("infoModal");
-    const modeHint = document.getElementById("modeHint");
     const modeBlurb = document.getElementById("modeBlurb");
     const modeHelpBtn = document.getElementById("modeHelpBtn");
+    const modeRunning = { sim: false, live: false, trade: false };
     const liveCredsPanel = document.getElementById("liveCredsPanel");
-    const walletCheckPanel = document.getElementById("walletCheckPanel");
     const ppApiKeyInput = document.getElementById("ppApiKey");
     const ppApiKeyError = document.getElementById("ppApiKeyError");
     const tradeWalletFields = document.getElementById("tradeWalletFields");
@@ -774,14 +791,36 @@
       return "/api";
     }
 
-    function setModeHint() {
-      if (activeMode === "sim") {
-        modeHint.textContent = "simulate · free (no PumpPortal)";
-      } else if (activeMode === "trade") {
-        modeHint.textContent = "trade · real buys/sells (PumpPortal)";
-      } else {
-        modeHint.textContent = "test · paper on live feed (slower / metered)";
+    function syncModeTabIndicators() {
+      document.querySelectorAll(".mode-tab").forEach((btn) => {
+        const mode = btn.dataset.mode;
+        const running = !!modeRunning[mode];
+        btn.classList.toggle("is-running", running);
+        const runEl = btn.querySelector(".mode-tab-dot");
+        if (runEl) runEl.hidden = !running;
+      });
+    }
+
+    async function pollAllModeStatus() {
+      const endpoints = [
+        ["sim", "/api/sim/status"],
+        ["live", "/api/status"],
+        ["trade", "/api/trade/status"],
+      ];
+      await Promise.all(endpoints.map(async ([mode, url]) => {
+        try {
+          const res = await fetch(url);
+          const data = await res.json();
+          modeRunning[mode] = !!data.running;
+        } catch (_) {}
+      }));
+      syncModeTabIndicators();
+      if (modeRunning[activeMode] !== botRunning) {
+        setRunning(modeRunning[activeMode], { skipModeSync: true });
       }
+    }
+
+    function setModeHint() {
       updateModeBlurb();
     }
 
@@ -845,6 +884,8 @@
       if (tradeHelpAccount) tradeHelpAccount.hidden = !hasAccount;
 
       if (feedCredsNote) feedCredsNote.hidden = hasAccount;
+      const walletStopParam = document.querySelector(".wallet-stop-param");
+      if (walletStopParam) walletStopParam.hidden = activeMode === "sim";
       syncWalletStopLabels();
       if (showTrade) {
         feedCredsTitle.textContent = "PumpPortal (Trade — real money)";
@@ -870,7 +911,7 @@
       const label = document.getElementById("walletStopValueLabel");
       const hint = document.getElementById("walletStopHint");
       const pct = form.elements.namedItem("wallet_stop_is_pct")?.checked;
-      if (!label) return;
+      if (!label || activeMode === "sim") return;
       if (activeMode === "trade") {
         label.textContent = pct ? "Max drop (%)" : "Max drop (SOL)";
         if (hint) {
@@ -882,8 +923,8 @@
         label.textContent = pct ? "Max drop (%)" : "Max drop (balance)";
         if (hint) {
           hint.textContent = pct
-            ? "Stops new buys when session balance + open PnL is down this % from start. Open positions keep running."
-            : "Stops new buys when session balance + open PnL falls this many units below start. Open positions keep running.";
+            ? "Stops new buys when paper balance + open PnL is down this % from Start balance. Not your PumpPortal wallet."
+            : "Stops new buys when paper balance + open PnL falls this many units below Start balance. Not your PumpPortal wallet.";
         }
       }
     }
@@ -1144,13 +1185,6 @@
       updatePpApiKeyMeta();
       savePpCreds();
       saveTradeCreds();
-      try {
-        const checkInput = document.getElementById("walletCheckPubkey");
-        if (checkInput && pub) {
-          checkInput.value = pub;
-          localStorage.setItem("stonkbot_wallet_check_v1", pub);
-        }
-      } catch (_) {}
     }
 
     function showPpProvisionNote(msg, isError) {
@@ -1247,6 +1281,7 @@
       document.querySelectorAll("#accountPanel .reveal-btn").forEach((btn) => {
         btn.textContent = "Show";
       });
+      pollHeaderWallet();
     }
 
     function remaskAccountSecrets() {
@@ -1334,95 +1369,6 @@
       });
     });
 
-    const walletCheckInput = document.getElementById("walletCheckPubkey");
-    const walletCheckBtn = document.getElementById("walletCheckBtn");
-    const walletCheckError = document.getElementById("walletCheckError");
-    const walletCheckResult = document.getElementById("walletCheckResult");
-    const WALLET_CHECK_KEY = "stonkbot_wallet_check_v1";
-
-    function sanitizeWalletPubkey(raw) {
-      let key = String(raw || "").trim();
-      key = key.replace(/^["']|["']$/g, "");
-      key = key.replace(/^PP_PUBLIC_KEY\s*=\s*/i, "");
-      key = key.replace(/[\u200B-\u200D\uFEFF]/g, "");
-      return key.trim();
-    }
-
-    try {
-      const saved = localStorage.getItem(WALLET_CHECK_KEY);
-      if (saved) walletCheckInput.value = sanitizeWalletPubkey(saved);
-    } catch (_) {}
-
-    walletCheckBtn.addEventListener("click", async () => {
-      const pubkey = sanitizeWalletPubkey(walletCheckInput.value);
-      walletCheckInput.value = pubkey;
-      walletCheckResult.hidden = true;
-      walletCheckResult.classList.remove("warn");
-      setFieldError(walletCheckInput, walletCheckError, "");
-
-      if (!pubkey) {
-        setFieldError(walletCheckInput, walletCheckError, "Enter a wallet public key.");
-        return;
-      }
-      if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(pubkey)) {
-        setFieldError(
-          walletCheckInput,
-          walletCheckError,
-          pubkey.length < 32 ? "Public key looks too short." : "Public key looks invalid."
-        );
-        return;
-      }
-
-      walletCheckBtn.disabled = true;
-      walletCheckBtn.textContent = "Checking…";
-      try {
-        const res = await fetch("/api/wallet_balance", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ pubkey }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok || !data.ok) {
-          setFieldError(
-            walletCheckInput,
-            walletCheckError,
-            data.message || `Balance check failed (${res.status})`
-          );
-          return;
-        }
-        try { localStorage.setItem(WALLET_CHECK_KEY, pubkey); } catch (_) {}
-        const sol = Number(data.sol);
-        let text = `${sol.toFixed(4)} SOL  ·  ${Number(data.lamports).toLocaleString()} lamports`;
-        if (data.below_pp_min) {
-          text += `  ·  below PumpPortal min (${data.pp_min_sol} SOL)`;
-          walletCheckResult.classList.add("warn");
-        }
-        walletCheckResult.textContent = text;
-        walletCheckResult.hidden = false;
-      } catch (err) {
-        setFieldError(
-          walletCheckInput,
-          walletCheckError,
-          `Balance check failed: ${err && err.message ? err.message : err}`
-        );
-      } finally {
-        walletCheckBtn.disabled = false;
-        walletCheckBtn.textContent = "Check SOL";
-      }
-    });
-
-    walletCheckInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        walletCheckBtn.click();
-      }
-    });
-    walletCheckInput.addEventListener("input", () => {
-      if (sanitizeWalletPubkey(walletCheckInput.value)) {
-        setFieldError(walletCheckInput, walletCheckError, "");
-      }
-    });
-
     function setModeBlurbOpen(open) {
       if (open) updateModeBlurb();
       modeBlurb.hidden = !open;
@@ -1480,6 +1426,7 @@
       lastLogKey = "";
       pendingLogEvents = null;
       paintLog([]);
+      pollHeaderWallet();
       connectStream();
       try {
         const res = await fetch(`${apiBase()}/status`);
@@ -1684,12 +1631,12 @@
       syncStepperDisabled();
     }
 
-    function setRunning(running) {
+    function setRunning(running, opts = {}) {
       botRunning = !!running;
+      if (!opts.skipModeSync) modeRunning[activeMode] = botRunning;
       startBtn.disabled = running;
       stopBtn.disabled = !running;
-      document.getElementById("runDot").classList.toggle("on", running);
-      document.getElementById("runLabel").textContent = running ? "Running" : "Stopped";
+      syncModeTabIndicators();
       [...form.querySelectorAll("input")].forEach((el) => { el.disabled = running; });
       if (!running) syncParamEnabled();
       else syncStepperDisabled();
@@ -1960,6 +1907,65 @@
       }
     });
 
+    let headerWalletSol = null;
+
+    function resolveHeaderWalletPubkey() {
+      const valid = (pub) => pub && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(pub);
+      if (hasAccount) {
+        const pub = (document.getElementById("accountPubkey")?.textContent || "").trim();
+        if (valid(pub)) return pub;
+      }
+      if (activeMode === "trade" && tradePubkeyInput) {
+        const pub = sanitizeTradePubkey(tradePubkeyInput.value || "");
+        if (valid(pub)) return pub;
+      }
+      return "";
+    }
+
+    function syncHeaderAccountBalance(state) {
+      const wrapEl = document.getElementById("headerAccountBalance");
+      const valueEl = document.getElementById("headerBalanceValue");
+      if (!wrapEl || !valueEl) return;
+
+      const pubkey = resolveHeaderWalletPubkey();
+      if (!pubkey) {
+        wrapEl.hidden = true;
+        return;
+      }
+      wrapEl.hidden = false;
+
+      const fromState = Number(state?.wallet_sol);
+      const sol = Number.isFinite(fromState) ? fromState : headerWalletSol;
+      if (sol != null && Number.isFinite(sol)) {
+        valueEl.innerHTML =
+          `<span class="header-balance-num">${sol.toFixed(4)}</span>` +
+          `<span class="header-balance-unit">SOL</span>`;
+      } else {
+        valueEl.textContent = "—";
+      }
+    }
+
+    async function pollHeaderWallet() {
+      const pubkey = resolveHeaderWalletPubkey();
+      if (!pubkey) {
+        headerWalletSol = null;
+        syncHeaderAccountBalance({});
+        return;
+      }
+      try {
+        const res = await fetch("/api/wallet_balance", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pubkey }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.ok) {
+          headerWalletSol = Number(data.sol);
+          syncHeaderAccountBalance({ wallet_sol: headerWalletSol });
+        }
+      } catch (_) {}
+    }
+
     function render(state) {
       const balLabel = document.getElementById("balanceLabel");
       const balEl = document.getElementById("balance");
@@ -2047,6 +2053,7 @@
       });
 
       paintLog(state.all_events || state.events || []);
+      syncHeaderAccountBalance(state);
     }
 
     function escapeHtml(s) {
@@ -2211,6 +2218,15 @@
     }
 
     connectStream();
+    setInterval(pollHeaderWallet, 20000);
+    setInterval(pollAllModeStatus, 8000);
+    if (tradePubkeyInput) {
+      tradePubkeyInput.addEventListener("change", pollHeaderWallet);
+      tradePubkeyInput.addEventListener("blur", pollHeaderWallet);
+    }
+    syncHeaderAccountBalance({});
+    pollHeaderWallet();
+    pollAllModeStatus();
   </script>
 </body>
 </html>
