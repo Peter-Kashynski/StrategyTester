@@ -5,6 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Strategy Tester</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  <script>
+    (function () {
+      var mode = "sim";
+      try {
+        var saved = localStorage.getItem("stonkbot_feed_mode");
+        if (saved === "sim" || saved === "live" || saved === "trade") mode = saved;
+      } catch (_) {}
+      document.documentElement.dataset.feedMode = mode;
+    })();
+  </script>
 </head>
 <body>
   <header>
@@ -12,34 +22,86 @@
       <div class="header-top-left">
         <h1>Strategy Tester</h1>
         <nav class="mode-tabs" role="tablist" aria-label="Feed mode">
-          <button type="button" class="mode-tab active" data-mode="sim" role="tab" aria-selected="true">
-            <span class="mode-tab-head">
-              <span class="mode-tab-label">Simulate</span>
-              <span class="mode-tab-dot" hidden aria-hidden="true"></span>
-            </span>
-            <span class="mode-tab-hint">free · no PumpPortal</span>
+          <button type="button" class="mode-tab" data-mode="sim" role="tab" aria-selected="false">
+            <span class="mode-tab-label">Simulate</span>
+            <span class="mode-tab-dot" hidden aria-hidden="true"></span>
           </button>
           <button type="button" class="mode-tab" data-mode="live" role="tab" aria-selected="false">
-            <span class="mode-tab-head">
-              <span class="mode-tab-label">Test</span>
-              <span class="mode-tab-dot" hidden aria-hidden="true"></span>
-            </span>
-            <span class="mode-tab-hint">paper · live feed</span>
+            <span class="mode-tab-label">Test</span>
+            <span class="mode-tab-dot" hidden aria-hidden="true"></span>
           </button>
           <button type="button" class="mode-tab" data-mode="trade" role="tab" aria-selected="false">
-            <span class="mode-tab-head">
-              <span class="mode-tab-label">Trade</span>
-              <span class="mode-tab-dot" hidden aria-hidden="true"></span>
-            </span>
-            <span class="mode-tab-hint">real buys/sells</span>
+            <span class="mode-tab-label">Trade</span>
+            <span class="mode-tab-dot" hidden aria-hidden="true"></span>
           </button>
         </nav>
+        <script>
+          (function () {
+            var mode = document.documentElement.dataset.feedMode || "sim";
+            document.querySelectorAll(".mode-tab").forEach(function (btn) {
+              var on = btn.getAttribute("data-mode") === mode;
+              btn.classList.toggle("active", on);
+              btn.setAttribute("aria-selected", on ? "true" : "false");
+            });
+          })();
+        </script>
         <button type="button" class="mode-help-btn" id="modeHelpBtn" aria-expanded="false" aria-controls="modeBlurb" title="About this tab">?</button>
       </div>
       <div class="header-top-right">
         <div class="header-user-row">
-          <div class="header-wallet-balance" id="headerAccountBalance" hidden aria-live="polite">
-            <span class="header-wallet-balance-value" id="headerBalanceValue">—</span>
+          <div class="header-wallet-wrap" id="headerWalletWrap" hidden>
+            <button
+              type="button"
+              class="header-wallet-balance"
+              id="headerWalletBtn"
+              aria-expanded="false"
+              aria-controls="headerWalletMenu"
+              title="Wallet balance"
+            >
+              <svg class="header-wallet-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path d="M4 8h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2z"/>
+                <path d="M18 12h2"/>
+                <path d="M4 10V8a2 2 0 0 1 2-2h12"/>
+              </svg>
+              <span class="header-wallet-balance-value" id="headerBalanceValue">—</span>
+            </button>
+            <div class="header-wallet-menu" id="headerWalletMenu" hidden>
+              <div class="header-wallet-menu-head">
+                <span class="header-wallet-menu-title">Wallet</span>
+                <button type="button" class="header-wallet-menu-close" id="headerWalletMenuClose" aria-label="Close">×</button>
+              </div>
+              <dl class="header-wallet-details">
+                <div>
+                  <dt>Balance</dt>
+                  <dd id="walletDetailSol">—</dd>
+                </div>
+                <div>
+                  <dt>Lamports</dt>
+                  <dd id="walletDetailLamports">—</dd>
+                </div>
+                <div>
+                  <dt>Public key</dt>
+                  <dd id="walletDetailPubkey" class="wallet-detail-pub">—</dd>
+                </div>
+                <div>
+                  <dt>Last updated</dt>
+                  <dd id="walletDetailUpdated">—</dd>
+                </div>
+                <div>
+                  <dt>PumpPortal min</dt>
+                  <dd id="walletDetailPp">—</dd>
+                </div>
+                <div id="walletDetailSessionRow" hidden>
+                  <dt>Session PnL</dt>
+                  <dd id="walletDetailSession">—</dd>
+                </div>
+              </dl>
+              <p class="header-wallet-menu-note" id="walletDetailNote"></p>
+              <div class="header-wallet-menu-actions">
+                <button type="button" class="header-wallet-refresh" id="headerWalletRefresh">Refresh</button>
+                <a class="header-wallet-explorer" id="walletDetailExplorer" href="#" target="_blank" rel="noopener noreferrer">Solscan</a>
+              </div>
+            </div>
           </div>
           <div class="header-user" id="headerUser">
             {% if has_account %}
@@ -94,8 +156,16 @@
     <aside>
       <form id="paramsForm">
         <div class="aside-scroll">
+        <div id="simHelpSection" class="sidebar-page-help" hidden>
+          <button type="button" class="section-toggle" id="toggleSimSetupFold" aria-expanded="false" aria-controls="simSetupFoldBody">Setup help</button>
+          <div class="settings-block-body settings-help-body" id="simSetupFoldBody" hidden>
+            <p><strong>Simulate mode.</strong> Free synthetic market on your machine — same strategy rules, no PumpPortal connection or fees.</p>
+            <p>Fast ticks for tuning parameters before you use Test or Trade. Save presets below to keep different strategy setups for each tab.</p>
+          </div>
+        </div>
         <div id="liveCredsPanel" class="live-creds" hidden>
-          <div class="section-title" id="feedCredsTitle">PumpPortal (Test only)</div>
+          <button type="button" class="section-toggle open" id="feedCredsTitle" aria-expanded="true" aria-controls="feedCredsBody">PumpPortal (Test only)</button>
+          <div class="settings-block-body" id="feedCredsBody">
           <div class="start-error" id="startErrorBanner" hidden role="alert"></div>
 
           <div class="fold-section">
@@ -236,9 +306,23 @@
               </table>
             </div>
           </div>
+          </div>
         </div>
 
-        <div class="section-title">Entry</div>
+        <div class="presets-bar" id="presetsBar">
+          <button type="button" class="section-toggle open" id="togglePresetsSection" aria-expanded="true" aria-controls="presetsSectionBody">Presets</button>
+          <div class="settings-block-body" id="presetsSectionBody">
+            <div class="presets-head">
+              <span class="presets-sub">{% if has_account %}Synced to account{% else %}3 per tab{% endif %}</span>
+              <button type="button" class="presets-rec" id="presetsRecBtn">Need a recommendation with these settings?</button>
+            </div>
+            <div class="presets-slots" id="presetsSlots"></div>
+          </div>
+        </div>
+
+        <div class="settings-block entry-settings-block">
+          <button type="button" class="section-toggle open" id="toggleEntrySection" aria-expanded="true" aria-controls="entrySectionBody">Entry</button>
+          <div class="settings-block-body" id="entrySectionBody">
         <div class="fields">
           <div class="param" id="positionSizeParam">
             <div class="param-head">
@@ -356,8 +440,12 @@
             </div>
           </div>
         </div>
+          </div>
+        </div>
 
-        <div class="section-title">Holder checks</div>
+        <div class="settings-block">
+          <button type="button" class="section-toggle open" id="toggleHolderSection" aria-expanded="true" aria-controls="holderSectionBody">Holder checks</button>
+          <div class="settings-block-body" id="holderSectionBody">
         <div class="fields">
           <div class="param" data-enable="use_holder_checks">
             <div class="param-head">
@@ -443,8 +531,12 @@
             </div>
           </div>
         </div>
+          </div>
+        </div>
 
-        <div class="section-title">Exit</div>
+        <div class="settings-block">
+          <button type="button" class="section-toggle open" id="toggleExitSection" aria-expanded="true" aria-controls="exitSectionBody">Exit</button>
+          <div class="settings-block-body" id="exitSectionBody">
         <div class="fields">
           <div class="param" data-enable="use_stoploss_entry">
             <div class="param-head">
@@ -535,6 +627,8 @@
             <div class="param-inputs single">
               <label>Seconds <input name="ath_stagnation_high_sec" type="number" step="0.1" value="{{ defaults.ath_stagnation_high_sec }}" /></label>
             </div>
+          </div>
+        </div>
           </div>
         </div>
         </div>
@@ -642,6 +736,21 @@
     </div>
   </div>
 
+  <div id="presetDialogBackdrop"></div>
+  <div id="presetDialog" role="dialog" aria-modal="true" aria-labelledby="presetDialogTitle">
+    <div class="preset-dialog-badge" id="presetDialogBadge">Preset</div>
+    <h3 id="presetDialogTitle"></h3>
+    <p id="presetDialogBody"></p>
+    <label class="preset-dialog-field" id="presetDialogFieldWrap">
+      <span class="preset-dialog-label" id="presetDialogLabel">Name</span>
+      <input type="text" id="presetDialogInput" autocomplete="off" spellcheck="false" maxlength="48" />
+    </label>
+    <div class="preset-dialog-actions">
+      <button type="button" id="presetDialogCancel">Cancel</button>
+      <button type="button" id="presetDialogOk">Save</button>
+    </div>
+  </div>
+
   <script>
     const INFO = {
       trade_msg_count: {
@@ -702,15 +811,15 @@
       },
       use_stoploss_entry: {
         title: "Stoploss vs entry",
-        body: "Sell if current MC drops below entry × ratio (default 0.95 = −5% from your entry).",
+        body: "Sell if current MC drops below entry × ratio.",
       },
       use_stoploss_ath_low: {
         title: "Stoploss vs ATH",
-        body: "When High MC threshold is off, or MC is below that threshold, sell if price falls below ATH × ratio (default 0.90).",
+        body: "When High MC threshold is off, or MC is below that threshold, sell if price falls below ATH × ratio.",
       },
       use_stoploss_ath_high: {
         title: "Stoploss vs ATH (high MC)",
-        body: "Only when High MC threshold is on and MC is at/above it: sell if price falls below ATH × ratio (default 0.85).",
+        body: "Only when High MC threshold is on and MC is at/above it: sell if price falls below ATH × ratio.",
       },
       use_high_mc_threshold: {
         title: "High MC threshold",
@@ -744,6 +853,7 @@
     const modeHelpBtn = document.getElementById("modeHelpBtn");
     const modeRunning = { sim: false, live: false, trade: false };
     const liveCredsPanel = document.getElementById("liveCredsPanel");
+    const simHelpSection = document.getElementById("simHelpSection");
     const ppApiKeyInput = document.getElementById("ppApiKey");
     const ppApiKeyError = document.getElementById("ppApiKeyError");
     const tradeWalletFields = document.getElementById("tradeWalletFields");
@@ -826,20 +936,34 @@
 
     const MODE_BLURBS = {
       sim:
-        "<strong>Simulate</strong> uses a free fake market on your machine — same strategy rules, no PumpPortal fees, fast ticks for tuning parameters before you use Test or Trade.",
+        "Free synthetic market on your machine — same strategy rules, no PumpPortal connection or fees. " +
+        "Fast ticks for tuning parameters before you use Test or Trade.",
       live:
-        "<strong>Test</strong> papers trades on the real PumpPortal feed (no on-chain buys/sells). Watching token trades is metered, so activity is usually slower and can cost SOL on the PumpPortal wallet. " +
+        "Paper trading on the real PumpPortal feed — no on-chain buys or sells. " +
+        "Watching token trades is metered (SOL on your PumpPortal wallet), so activity is usually slower than Simulate. " +
         "Paper gains ignore fees, slippage, and latency — real break-even on Trade is often around <strong>5–10%</strong> MC. " +
         "For example, a <strong>+5%</strong> paper win here is likely about break-even once you run the same setup on Trade.",
       trade:
-        "<strong>Trade</strong> uses the same strategy as Test but places real PumpPortal buys/sells with your pasted wallet keys and Helius RPC. This spends real SOL; Session PnL uses wallet tx deltas (fees and slippage included). Open <em>Expected fees</em> under PumpPortal for a cost breakdown.",
+        "Real PumpPortal buys and sells with your wallet keys and Helius RPC — this spends actual SOL. " +
+        "Uses the same strategy as Test; Session PnL tracks wallet tx deltas (fees and slippage included). " +
+        "Open <em>Expected fees</em> under PumpPortal credentials for a cost breakdown.",
     };
 
     function updateModeBlurb() {
-      const html = MODE_BLURBS[activeMode] || MODE_BLURBS.sim;
-      modeBlurb.innerHTML = html;
-      const titles = { sim: "About Simulate", live: "About Test", trade: "About Trade" };
-      modeHelpBtn.title = titles[activeMode] || "About this tab";
+      const titles = { sim: "Simulate", live: "Test", trade: "Trade" };
+      const taglines = {
+        sim: "Free · no PumpPortal",
+        live: "Paper · live feed",
+        trade: "Real buys/sells",
+      };
+      const title = titles[activeMode] || "Simulate";
+      const tagline = taglines[activeMode] || "";
+      const body = MODE_BLURBS[activeMode] || MODE_BLURBS.sim;
+      modeBlurb.innerHTML =
+        `<p class="mode-blurb-title">${title}</p>` +
+        `<p class="mode-blurb-tagline">${tagline}</p>` +
+        `<p class="mode-blurb-body">${body}</p>`;
+      modeHelpBtn.title = `About ${title}`;
     }
 
     function setFoldOpen(btn, body, open) {
@@ -849,18 +973,80 @@
       btn.classList.toggle("open", on);
     }
 
-    function wireFold(btn, body, startOpen) {
-      setFoldOpen(btn, body, startOpen);
-      btn.addEventListener("click", () => setFoldOpen(btn, body, body.hidden));
+    const SETTINGS_FOLDS_KEY = "stonkbot_settings_folds_v1";
+
+    function loadSettingsFoldStates() {
+      try {
+        const raw = localStorage.getItem(SETTINGS_FOLDS_KEY);
+        return raw ? JSON.parse(raw) : {};
+      } catch (_) {
+        return {};
+      }
     }
 
-    wireFold(toggleSetupFold, setupFoldBody, false);
-    wireFold(toggleCredsFold, credsFoldBody, true);
-    wireFold(toggleFeesFold, feesFoldBody, false);
+    function saveSettingsFoldState(key, open) {
+      if (!key) return;
+      try {
+        const states = loadSettingsFoldStates();
+        states[key] = !!open;
+        localStorage.setItem(SETTINGS_FOLDS_KEY, JSON.stringify(states));
+      } catch (_) {}
+    }
+
+    function wireFold(btn, body, startOpen, persistKey) {
+      if (!btn || !body) return;
+      const saved = loadSettingsFoldStates();
+      const open = persistKey && saved[persistKey] != null ? !!saved[persistKey] : startOpen;
+      setFoldOpen(btn, body, open);
+      btn.addEventListener("click", () => {
+        const nextOpen = body.hidden;
+        setFoldOpen(btn, body, nextOpen);
+        if (persistKey) saveSettingsFoldState(persistKey, nextOpen);
+      });
+    }
+
+    wireFold(toggleSetupFold, setupFoldBody, false, "setupHelp");
+    wireFold(toggleCredsFold, credsFoldBody, true, "credentials");
+    wireFold(toggleFeesFold, feesFoldBody, false, "expectedFees");
+    const toggleSimSetupFold = document.getElementById("toggleSimSetupFold");
+    const simSetupFoldBody = document.getElementById("simSetupFoldBody");
+    if (toggleSimSetupFold && simSetupFoldBody) {
+      wireFold(toggleSimSetupFold, simSetupFoldBody, false, "simHelp");
+    }
+    const feedCredsBody = document.getElementById("feedCredsBody");
+    if (feedCredsTitle && feedCredsBody) {
+      wireFold(feedCredsTitle, feedCredsBody, true, "feedCreds");
+    }
+    wireFold(
+      document.getElementById("togglePresetsSection"),
+      document.getElementById("presetsSectionBody"),
+      true,
+      "presets",
+    );
+    wireFold(
+      document.getElementById("toggleEntrySection"),
+      document.getElementById("entrySectionBody"),
+      true,
+      "entry",
+    );
+    wireFold(
+      document.getElementById("toggleHolderSection"),
+      document.getElementById("holderSectionBody"),
+      true,
+      "holderChecks",
+    );
+    wireFold(
+      document.getElementById("toggleExitSection"),
+      document.getElementById("exitSectionBody"),
+      true,
+      "exit",
+    );
 
     function syncLiveCredsPanel() {
       const showFeed = activeMode === "live" || activeMode === "trade";
       const showTrade = activeMode === "trade";
+      const showSim = activeMode === "sim";
+      if (simHelpSection) simHelpSection.hidden = !showSim;
       liveCredsPanel.hidden = !showFeed;
       if (accountCredsFields) accountCredsFields.hidden = hasAccount;
       if (accountUsingNote) accountUsingNote.hidden = !hasAccount;
@@ -1300,7 +1486,10 @@
       const panel = document.getElementById("accountPanel");
       const btn = document.getElementById("accountBtn");
       if (!panel) return;
-      if (open) remaskAccountSecrets();
+      if (open) {
+        remaskAccountSecrets();
+        setHeaderWalletMenuOpen(false);
+      }
       panel.hidden = !open;
       if (btn) btn.setAttribute("aria-expanded", open ? "true" : "false");
     }
@@ -1407,18 +1596,31 @@
       };
     }
 
+    function readSavedMode() {
+      try {
+        const saved = localStorage.getItem(MODE_KEY);
+        if (saved === "sim" || saved === "live" || saved === "trade") return saved;
+      } catch (_) {}
+      return "sim";
+    }
+
     async function switchMode(mode) {
       if (mode !== "live" && mode !== "sim" && mode !== "trade") return;
       if (mode === activeMode) return;
+      saveParamsForMode(activeMode, undefined, { flush: true });
       activeMode = mode;
       try { localStorage.setItem(MODE_KEY, mode); } catch (_) {}
+      document.documentElement.dataset.feedMode = mode;
       document.querySelectorAll(".mode-tab").forEach((btn) => {
         const on = btn.dataset.mode === mode;
         btn.classList.toggle("active", on);
         btn.setAttribute("aria-selected", on ? "true" : "false");
       });
       setModeHint();
+      if (!modeBlurb.hidden) updateModeBlurb();
       syncLiveCredsPanel();
+      loadParamsForMode(mode);
+      renderPresetsBar();
       syncLogFilters();
       syncWalletStopLabels();
       logIgnoreThroughId = 0;
@@ -1427,6 +1629,7 @@
       pendingLogEvents = null;
       paintLog([]);
       pollHeaderWallet();
+      syncHeaderAccountBalance({});
       connectStream();
       try {
         const res = await fetch(`${apiBase()}/status`);
@@ -1438,9 +1641,7 @@
     document.querySelectorAll(".mode-tab").forEach((btn) => {
       btn.addEventListener("click", () => switchMode(btn.dataset.mode));
     });
-    // Always land on Simulate when opening the app
-    activeMode = "sim";
-    try { localStorage.setItem(MODE_KEY, "sim"); } catch (_) {}
+    activeMode = readSavedMode();
     document.querySelectorAll(".mode-tab").forEach((btn) => {
       const on = btn.dataset.mode === activeMode;
       btn.classList.toggle("active", on);
@@ -1449,6 +1650,7 @@
     setModeHint();
     syncLiveCredsPanel();
     syncLogFilters();
+    syncWalletStopLabels();
     updateModeBlurb();
     bootstrapPpAccountAsNewUser();
 
@@ -1518,28 +1720,221 @@
       "stonkbot_strategy_params",
     ];
     const PARAMS_KEY = PARAMS_KEYS[0];
+    const MODE_PARAMS_KEY = "stonkbot_mode_params_v1";
+    const PRESETS_STORE_KEY = "stonkbot_presets_v1";
+    const PRESET_SLOT_COUNT = 3;
 
-    function saveParams() {
+    function emptyModePresets() {
+      return { activeSlot: null, slots: [null, null, null] };
+    }
+
+    function emptyPresetsStore() {
+      return { sim: emptyModePresets(), live: emptyModePresets(), trade: emptyModePresets() };
+    }
+
+    function loadPresetsStore() {
       try {
-        localStorage.setItem(PARAMS_KEY, JSON.stringify(formParams()));
+        const raw = localStorage.getItem(PRESETS_STORE_KEY);
+        if (!raw) return emptyPresetsStore();
+        const parsed = JSON.parse(raw);
+        const base = emptyPresetsStore();
+        for (const mode of ["sim", "live", "trade"]) {
+          if (!parsed[mode]) continue;
+          base[mode].activeSlot = Number.isInteger(parsed[mode].activeSlot)
+            ? parsed[mode].activeSlot
+            : null;
+          for (let i = 0; i < PRESET_SLOT_COUNT; i++) {
+            const s = parsed[mode].slots?.[i];
+            base[mode].slots[i] =
+              s && typeof s === "object" && s.params && typeof s.params === "object"
+                ? { name: String(s.name || `Preset ${i + 1}`).trim() || `Preset ${i + 1}`, params: s.params }
+                : null;
+          }
+        }
+        return base;
+      } catch (_) {
+        return emptyPresetsStore();
+      }
+    }
+
+    function savePresetsStoreLocal(store) {
+      try {
+        localStorage.setItem(PRESETS_STORE_KEY, JSON.stringify(store));
       } catch (_) {}
     }
 
-    function loadParams() {
-      let saved = null;
+    let modeParamsSyncTimer = null;
+
+    function hasLocalPresetData() {
+      const presets = loadPresetsStore();
+      for (const mode of ["sim", "live", "trade"]) {
+        if ((presets[mode]?.slots || []).some((s) => s?.params)) return true;
+      }
+      const modeParams = loadModeParamsStore();
+      return ["sim", "live", "trade"].some((m) => modeParams[m] && typeof modeParams[m] === "object");
+    }
+
+    function isServerPresetStateEmpty(presets, modeParams) {
+      const presetEmpty = !presets || ["sim", "live", "trade"].every((mode) => {
+        const slots = presets[mode]?.slots || [];
+        return !slots.some((s) => s?.params);
+      });
+      const paramsEmpty = !modeParams || ["sim", "live", "trade"].every(
+        (mode) => !modeParams[mode] || typeof modeParams[mode] !== "object",
+      );
+      return presetEmpty && paramsEmpty;
+    }
+
+    function applyServerPresetState(presets, modeParams) {
+      if (presets && typeof presets === "object") savePresetsStoreLocal(presets);
+      if (modeParams && typeof modeParams === "object") saveModeParamsStore(modeParams);
+      loadParamsForMode(activeMode);
+      renderPresetsBar();
+    }
+
+    async function apiPutPresetSlot(mode, slot, name, params, activeSlot) {
+      if (!hasAccount) return null;
+      try {
+        const res = await fetch("/api/presets/slot", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode, slot, name, params, activeSlot }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.ok) return data;
+      } catch (_) {}
+      return null;
+    }
+
+    async function apiDeletePresetSlot(mode, slot) {
+      if (!hasAccount) return null;
+      try {
+        const res = await fetch("/api/presets/slot", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode, slot }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.ok) return data;
+      } catch (_) {}
+      return null;
+    }
+
+    async function apiPutModeParams(mode, params, activeSlot) {
+      if (!hasAccount) return null;
+      try {
+        const body = { mode, params };
+        if (activeSlot != null) body.activeSlot = activeSlot;
+        const res = await fetch("/api/presets/mode-params", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.ok) return data;
+      } catch (_) {}
+      return null;
+    }
+
+    async function apiSetActiveSlot(mode, activeSlot) {
+      if (!hasAccount) return null;
+      try {
+        const res = await fetch("/api/presets/active-slot", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode, activeSlot }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.ok) return data;
+      } catch (_) {}
+      return null;
+    }
+
+    function scheduleModeParamsSync(mode) {
+      if (!hasAccount) return;
+      clearTimeout(modeParamsSyncTimer);
+      modeParamsSyncTimer = setTimeout(() => {
+        const store = loadModeParamsStore();
+        const params = store[mode];
+        if (params) apiPutModeParams(mode, params);
+      }, 800);
+    }
+
+    async function loadPresetsFromServer() {
+      if (!hasAccount) {
+        loadParams();
+        return;
+      }
+      try {
+        let res = await fetch("/api/presets");
+        let data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) {
+          loadParams();
+          return;
+        }
+        if (isServerPresetStateEmpty(data.presets, data.modeParams) && hasLocalPresetData()) {
+          const importRes = await fetch("/api/presets/import", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              presets: loadPresetsStore(),
+              modeParams: loadModeParamsStore(),
+            }),
+          });
+          const importData = await importRes.json().catch(() => ({}));
+          if (importRes.ok && importData.ok) {
+            data = importData;
+          }
+        }
+        applyServerPresetState(data.presets, data.modeParams);
+      } catch (_) {
+        loadParams();
+      }
+    }
+
+    function loadModeParamsStore() {
+      const empty = { sim: null, live: null, trade: null };
+      try {
+        const raw = localStorage.getItem(MODE_PARAMS_KEY);
+        if (!raw) return empty;
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object") return empty;
+        for (const mode of ["sim", "live", "trade"]) {
+          if (parsed[mode] && typeof parsed[mode] === "object") empty[mode] = parsed[mode];
+        }
+        return empty;
+      } catch (_) {
+        return empty;
+      }
+    }
+
+    function saveModeParamsStore(store) {
+      try {
+        localStorage.setItem(MODE_PARAMS_KEY, JSON.stringify(store));
+      } catch (_) {}
+    }
+
+    function readLegacyParams() {
       for (const key of PARAMS_KEYS) {
         try {
           const raw = localStorage.getItem(key);
           if (!raw) continue;
           const parsed = JSON.parse(raw);
-          if (parsed && typeof parsed === "object") {
-            saved = parsed;
-            break;
-          }
+          if (parsed && typeof parsed === "object") return parsed;
         } catch (_) {}
       }
-      if (!saved) return;
+      return null;
+    }
 
+    function migrateLegacyParams() {
+      if (localStorage.getItem(MODE_PARAMS_KEY)) return;
+      const legacy = readLegacyParams();
+      if (!legacy) return;
+      saveModeParamsStore({ sim: legacy, live: legacy, trade: legacy });
+    }
+
+    function applyParamsToForm(saved) {
+      if (!saved || typeof saved !== "object") return;
       form.querySelectorAll("input[name]").forEach((el) => {
         if (!(el.name in saved)) return;
         const val = saved[el.name];
@@ -1551,6 +1946,229 @@
           }
         }
       });
+      syncParamEnabled();
+      syncWalletStopLabels();
+    }
+
+    function saveParamsForMode(mode, params, opts = {}) {
+      const store = loadModeParamsStore();
+      store[mode] = params || formParams();
+      saveModeParamsStore(store);
+      if (mode === "sim") {
+        try {
+          localStorage.setItem(PARAMS_KEY, JSON.stringify(store[mode]));
+        } catch (_) {}
+      }
+      if (opts.flush && hasAccount) {
+        clearTimeout(modeParamsSyncTimer);
+        apiPutModeParams(mode, store[mode]);
+      } else {
+        scheduleModeParamsSync(mode);
+      }
+    }
+
+    function loadParamsForMode(mode) {
+      const store = loadModeParamsStore();
+      if (store[mode]) applyParamsToForm(store[mode]);
+    }
+
+    function saveParams() {
+      saveParamsForMode(activeMode);
+    }
+
+    function loadParams() {
+      migrateLegacyParams();
+      loadParamsForMode(activeMode);
+    }
+
+    function renderPresetsBar() {
+      const container = document.getElementById("presetsSlots");
+      if (!container) return;
+      const store = loadPresetsStore();
+      const modeData = store[activeMode] || emptyModePresets();
+      container.innerHTML = "";
+      for (let i = 0; i < PRESET_SLOT_COUNT; i++) {
+        const slot = modeData.slots[i];
+        const filled = !!(slot && slot.params);
+        const active = modeData.activeSlot === i;
+        const displayName = filled ? slot.name : "Empty";
+        const row = document.createElement("div");
+        row.className = "preset-row" + (active ? " is-active" : "") + (filled ? "" : " is-empty");
+        row.dataset.slot = String(i);
+        row.innerHTML =
+          `<button type="button" class="preset-load" ${filled ? "" : "disabled"} title="${filled ? `Load ${escapeAttr(slot.name)}` : "Save settings to fill this slot"}">` +
+          `<span class="preset-num">${i + 1}</span>` +
+          `<span class="preset-name">${escapeHtml(displayName)}</span>` +
+          `</button>` +
+          `<div class="preset-actions">` +
+          `<button type="button" class="preset-action preset-save" title="Save current settings">Save</button>` +
+          (filled
+            ? `<button type="button" class="preset-action preset-rename" title="Rename">Rename</button>` +
+              `<button type="button" class="preset-action preset-clear" title="Clear slot">Clear</button>`
+            : "") +
+          `</div>`;
+        container.appendChild(row);
+      }
+      container.querySelectorAll("button").forEach((btn) => {
+        btn.disabled = !!botRunning;
+      });
+      const recBtn = document.getElementById("presetsRecBtn");
+      if (recBtn) recBtn.disabled = !!botRunning;
+    }
+
+    function presetTabLabel() {
+      return activeMode === "sim" ? "Simulate" : activeMode === "live" ? "Test" : "Trade";
+    }
+
+    function findNextOpenPresetSlot() {
+      const store = loadPresetsStore();
+      for (let i = 0; i < PRESET_SLOT_COUNT; i++) {
+        if (!store[activeMode].slots[i]?.params) return i;
+      }
+      return -1;
+    }
+
+    async function writePresetSlot(slotIdx, name, params) {
+      const store = loadPresetsStore();
+      store[activeMode].slots[slotIdx] = { name, params };
+      store[activeMode].activeSlot = slotIdx;
+      savePresetsStoreLocal(store);
+      saveParamsForMode(activeMode, params);
+      renderPresetsBar();
+      const synced = await apiPutPresetSlot(activeMode, slotIdx, name, params, slotIdx);
+      if (synced) applyServerPresetState(synced.presets, synced.modeParams);
+    }
+
+    async function saveSettingsToNextOpenSlot() {
+      if (botRunning) return;
+      const openIdx = findNextOpenPresetSlot();
+      const tabLabel = presetTabLabel();
+      if (openIdx < 0) {
+        const store = loadPresetsStore();
+        const filled = store[activeMode].slots
+          .map((s, i) => (s?.name ? `Slot ${i + 1}: ${s.name}` : null))
+          .filter(Boolean)
+          .join(" · ");
+        await showPresetDialog({
+          mode: "alert",
+          variant: "clear",
+          title: "No open preset slots",
+          body: `All 3 ${tabLabel} slots are in use${filled ? ` (${filled})` : ""}. Clear a slot first, then try again.`,
+          okLabel: "Got it",
+        });
+        return;
+      }
+      const entered = await showPresetDialog({
+        mode: "input",
+        variant: "save",
+        title: "Save to preset",
+        body: `Save your current ${tabLabel} settings to slot ${openIdx + 1}?`,
+        value: "Recommended",
+        okLabel: "Save preset",
+      });
+      if (entered == null) return;
+      const name = entered.trim();
+      if (!name) return;
+      await writePresetSlot(openIdx, name, formParams());
+    }
+
+    async function loadPresetSlot(slotIdx) {
+      const store = loadPresetsStore();
+      const slot = store[activeMode].slots[slotIdx];
+      if (!slot?.params) return;
+      store[activeMode].activeSlot = slotIdx;
+      savePresetsStoreLocal(store);
+      applyParamsToForm(slot.params);
+      saveParamsForMode(activeMode, slot.params);
+      renderPresetsBar();
+      const synced = await apiPutModeParams(activeMode, slot.params, slotIdx);
+      if (synced) applyServerPresetState(synced.presets, synced.modeParams);
+    }
+
+    async function savePresetSlot(slotIdx) {
+      if (botRunning) return;
+      const store = loadPresetsStore();
+      const existing = store[activeMode].slots[slotIdx];
+      let name = existing?.name || "";
+      if (!name) {
+        const tabLabel = activeMode === "sim" ? "Simulate" : activeMode === "live" ? "Test" : "Trade";
+        const entered = await showPresetDialog({
+          mode: "input",
+          variant: "save",
+          title: "Save preset",
+          body: `Name this preset for the ${tabLabel} tab. Current strategy settings will be stored in slot ${slotIdx + 1}.`,
+          value: `Preset ${slotIdx + 1}`,
+          okLabel: "Save preset",
+        });
+        if (entered == null) return;
+        name = entered;
+        if (!name) return;
+      }
+      await writePresetSlot(slotIdx, name, formParams());
+    }
+
+    async function renamePresetSlot(slotIdx) {
+      if (botRunning) return;
+      const store = loadPresetsStore();
+      const slot = store[activeMode].slots[slotIdx];
+      if (!slot) return;
+      const entered = await showPresetDialog({
+        mode: "input",
+        variant: "rename",
+        title: "Rename preset",
+        body: "Choose a new name for this preset slot.",
+        value: slot.name,
+        okLabel: "Rename",
+      });
+      if (entered == null) return;
+      const name = entered;
+      if (!name) return;
+      slot.name = name;
+      savePresetsStoreLocal(store);
+      renderPresetsBar();
+      const synced = await apiPutPresetSlot(activeMode, slotIdx, name, slot.params, store[activeMode].activeSlot);
+      if (synced) applyServerPresetState(synced.presets, synced.modeParams);
+    }
+
+    async function clearPresetSlot(slotIdx) {
+      if (botRunning) return;
+      const store = loadPresetsStore();
+      const slot = store[activeMode].slots[slotIdx];
+      if (!slot) return;
+      const ok = await showPresetDialog({
+        mode: "confirm",
+        variant: "clear",
+        title: "Clear preset?",
+        body: slot.name
+          ? `Remove “${slot.name}” from slot ${slotIdx + 1}? Saved settings in this slot will be deleted.`
+          : `Clear slot ${slotIdx + 1}? Saved settings will be deleted.`,
+        okLabel: "Clear slot",
+      });
+      if (!ok) return;
+      store[activeMode].slots[slotIdx] = null;
+      if (store[activeMode].activeSlot === slotIdx) store[activeMode].activeSlot = null;
+      savePresetsStoreLocal(store);
+      renderPresetsBar();
+      const synced = await apiDeletePresetSlot(activeMode, slotIdx);
+      if (synced) applyServerPresetState(synced.presets, synced.modeParams);
+    }
+
+    function wirePresetsBar() {
+      document.getElementById("presetsRecBtn")?.addEventListener("click", saveSettingsToNextOpenSlot);
+      const container = document.getElementById("presetsSlots");
+      if (!container) return;
+      container.addEventListener("click", (e) => {
+        const btn = e.target.closest("button");
+        if (!btn || btn.disabled) return;
+        const row = btn.closest(".preset-row");
+        if (!row) return;
+        const slotIdx = Number(row.dataset.slot);
+        if (!Number.isInteger(slotIdx)) return;
+        if (btn.classList.contains("preset-load")) loadPresetSlot(slotIdx);
+        else if (btn.classList.contains("preset-save")) savePresetSlot(slotIdx);
+        else if (btn.classList.contains("preset-rename")) renamePresetSlot(slotIdx);
+        else if (btn.classList.contains("preset-clear")) clearPresetSlot(slotIdx);
+      });
     }
 
     function syncParamEnabled() {
@@ -1559,6 +2177,7 @@
         const cb = form.elements.namedItem(name);
         const on = cb && cb.checked;
         row.classList.toggle("disabled", !on);
+        row.classList.remove("locked");
         row.querySelectorAll('input[type="number"]').forEach((inp) => {
           inp.disabled = !on;
         });
@@ -1585,6 +2204,7 @@
       }
       form.querySelectorAll(".param[data-parent='use_holder_checks']").forEach((row) => {
         row.classList.toggle("disabled", !holdersOn);
+        row.classList.toggle("locked", !holdersOn);
         row.querySelectorAll('input[type="checkbox"]').forEach((inp) => {
           inp.disabled = !holdersOn;
         });
@@ -1603,16 +2223,18 @@
       ].forEach(([enableName, cb]) => {
         const boostRow = form.querySelector(`.param[data-enable="${enableName}"]`);
         if (!boostRow) return;
-        boostRow.classList.toggle("disabled", !holdersOn);
+        const boostActive = !!(holdersOn && cb?.checked);
+        boostRow.classList.toggle("disabled", !boostActive);
+        boostRow.classList.toggle("locked", !holdersOn);
         boostRow.querySelectorAll('input[type="number"]').forEach((inp) => {
-          inp.disabled = !holdersOn || !cb?.checked;
+          inp.disabled = !boostActive;
         });
         if (cb) cb.disabled = !holdersOn;
       });
       const highMcOn = form.elements.namedItem("use_high_mc_threshold")?.checked;
       form.querySelectorAll(".param[data-parent='use_high_mc_threshold']").forEach((row) => {
         if (!highMcOn) {
-          row.classList.add("disabled");
+          row.classList.add("disabled", "locked");
           row.querySelectorAll('input[type="number"], input[type="checkbox"]').forEach((inp) => {
             if (inp.name !== "use_high_mc_threshold") inp.disabled = true;
           });
@@ -1620,11 +2242,12 @@
           const childCb = form.elements.namedItem(row.dataset.enable);
           const childOn = childCb && childCb.checked;
           row.classList.toggle("disabled", !childOn);
+          row.classList.remove("locked");
           row.querySelectorAll('input[type="number"]').forEach((inp) => {
             inp.disabled = !childOn;
           });
         } else {
-          row.classList.remove("disabled");
+          row.classList.remove("disabled", "locked");
           row.querySelectorAll('input[type="number"]').forEach((inp) => { inp.disabled = false; });
         }
       });
@@ -1640,6 +2263,7 @@
       [...form.querySelectorAll("input")].forEach((el) => { el.disabled = running; });
       if (!running) syncParamEnabled();
       else syncStepperDisabled();
+      renderPresetsBar();
     }
 
     function formatPositionSize(pos) {
@@ -1713,10 +2337,41 @@
     function showInfo(key) {
       const item = INFO[key];
       if (!item) return;
-      document.getElementById("infoTitle").textContent = item.title;
-      document.getElementById("infoBody").textContent = resolveInfoBody(item);
+      showAlert(item.title, resolveInfoBody(item));
+    }
+
+    const HIGH_MC_EXIT_ALERT = {
+      title: "High MC needs an exit rule",
+      body:
+        "High MC threshold is on, but neither high-MC exit rule is enabled.\n\n" +
+        "That cutoff only switches which ATH rules apply — it does not sell by itself. " +
+        "While market cap is at or above your USD MC threshold, the regular Stoploss vs ATH " +
+        "and ATH stagnation rules are turned off.\n\n" +
+        "Enable Stoploss vs ATH (high MC) and/or ATH stagnation (high MC), " +
+        "or turn off High MC threshold to use the regular rules everywhere.",
+    };
+
+    function highMcExitConfigInvalid() {
+      if (!form.elements.namedItem("use_high_mc_threshold")?.checked) return false;
+      const stopHigh = form.elements.namedItem("use_stoploss_ath_high")?.checked;
+      const stagHigh = form.elements.namedItem("use_ath_stagnation_high")?.checked;
+      return !stopHigh && !stagHigh;
+    }
+
+    function showHighMcExitAlert() {
+      showAlert(HIGH_MC_EXIT_ALERT.title, HIGH_MC_EXIT_ALERT.body);
+      form.querySelector('.param[data-enable="use_high_mc_threshold"]')?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    }
+
+    function showAlert(title, body) {
+      document.getElementById("infoTitle").textContent = title;
+      document.getElementById("infoBody").textContent = body;
       infoBackdrop.classList.add("open");
       infoModal.classList.add("open");
+      document.getElementById("infoClose").focus();
     }
 
     function hideInfo() {
@@ -1765,8 +2420,95 @@
     confirmBackdrop.addEventListener("click", () => hideConfirm(false));
     confirmCancel.addEventListener("click", () => hideConfirm(false));
     confirmOk.addEventListener("click", () => hideConfirm(true));
+
+    const presetDialogBackdrop = document.getElementById("presetDialogBackdrop");
+    const presetDialog = document.getElementById("presetDialog");
+    const presetDialogBadge = document.getElementById("presetDialogBadge");
+    const presetDialogTitle = document.getElementById("presetDialogTitle");
+    const presetDialogBody = document.getElementById("presetDialogBody");
+    const presetDialogFieldWrap = document.getElementById("presetDialogFieldWrap");
+    const presetDialogInput = document.getElementById("presetDialogInput");
+    const presetDialogCancel = document.getElementById("presetDialogCancel");
+    const presetDialogOk = document.getElementById("presetDialogOk");
+    let presetDialogResolve = null;
+    let presetDialogMode = "input";
+
+    function hidePresetDialog(result) {
+      presetDialogBackdrop.classList.remove("open");
+      presetDialog.classList.remove("open");
+      presetDialog.classList.remove("preset-dialog-save", "preset-dialog-rename", "preset-dialog-clear");
+      const resolve = presetDialogResolve;
+      presetDialogResolve = null;
+      presetDialogMode = "input";
+      if (resolve) resolve(result);
+    }
+
+    function submitPresetDialog() {
+      if (presetDialogMode === "input") {
+        const value = presetDialogInput.value.trim();
+        hidePresetDialog(value || null);
+        return;
+      }
+      hidePresetDialog(presetDialogMode === "alert" ? null : true);
+    }
+
+    function showPresetDialog({
+      mode = "input",
+      variant = "save",
+      title = "",
+      body = "",
+      value = "",
+      okLabel = "Save",
+    } = {}) {
+      presetDialogMode = mode;
+      presetDialogTitle.textContent = title;
+      presetDialogBody.textContent = body;
+      presetDialogOk.textContent = okLabel;
+      presetDialogBadge.textContent = variant === "clear" ? "Remove" : "Preset";
+      presetDialog.classList.remove("preset-dialog-save", "preset-dialog-rename", "preset-dialog-clear");
+      presetDialog.classList.add(`preset-dialog-${variant}`);
+
+      const isInput = mode === "input";
+      presetDialogFieldWrap.hidden = !isInput;
+      presetDialogCancel.hidden = mode === "alert";
+      if (isInput) {
+        presetDialogInput.value = value;
+      }
+
+      presetDialogBackdrop.classList.add("open");
+      presetDialog.classList.add("open");
+
+      return new Promise((resolve) => {
+        presetDialogResolve = resolve;
+        if (isInput) {
+          presetDialogInput.focus();
+          presetDialogInput.select();
+        } else {
+          presetDialogOk.focus();
+        }
+      });
+    }
+
+    presetDialogBackdrop.addEventListener("click", () => {
+      hidePresetDialog(presetDialogMode === "confirm" ? false : null);
+    });
+    presetDialogCancel.addEventListener("click", () => {
+      hidePresetDialog(presetDialogMode === "confirm" ? false : null);
+    });
+    presetDialogOk.addEventListener("click", submitPresetDialog);
+    presetDialogInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        submitPresetDialog();
+      }
+    });
+
     document.addEventListener("keydown", (e) => {
       if (e.key !== "Escape") return;
+      if (presetDialog.classList.contains("open")) {
+        hidePresetDialog(presetDialogMode === "confirm" ? false : null);
+        return;
+      }
       if (confirmModal.classList.contains("open")) {
         hideConfirm(false);
         return;
@@ -1908,6 +2650,144 @@
     });
 
     let headerWalletSol = null;
+    let lastRenderState = null;
+    let headerWalletDetails = {
+      sol: null,
+      lamports: null,
+      pubkey: "",
+      updatedAt: null,
+      belowPpMin: false,
+      ppMinSol: {{ pp_min_sol | tojson }},
+    };
+    const HEADER_WALLET_CACHE_KEY = "stonkbot_header_wallet_v1";
+
+    function loadHeaderWalletCache() {
+      try {
+        const raw = sessionStorage.getItem(HEADER_WALLET_CACHE_KEY);
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        const sol = Number(parsed?.sol);
+        const pubkey = String(parsed?.pubkey || "").trim();
+        if (pubkey && Number.isFinite(sol)) {
+          headerWalletSol = sol;
+          headerWalletDetails = {
+            sol,
+            lamports: Number.isFinite(Number(parsed?.lamports))
+              ? Number(parsed.lamports)
+              : Math.round(sol * 1_000_000_000),
+            pubkey,
+            updatedAt: Number(parsed?.ts) || null,
+            belowPpMin: !!parsed?.belowPpMin,
+            ppMinSol: Number(parsed?.ppMinSol) || headerWalletDetails.ppMinSol,
+          };
+        }
+      } catch (_) {}
+    }
+
+    function saveHeaderWalletCache(pubkey, sol, extra) {
+      if (!pubkey || !Number.isFinite(sol)) return;
+      try {
+        sessionStorage.setItem(
+          HEADER_WALLET_CACHE_KEY,
+          JSON.stringify({
+            pubkey,
+            sol,
+            lamports: extra?.lamports,
+            belowPpMin: extra?.belowPpMin,
+            ppMinSol: extra?.ppMinSol,
+            ts: Date.now(),
+          }),
+        );
+      } catch (_) {}
+    }
+
+    function shortPubkey(pub) {
+      if (!pub || pub.length < 12) return pub || "—";
+      return `${pub.slice(0, 4)}…${pub.slice(-4)}`;
+    }
+
+    function formatWalletUpdated(ts) {
+      if (!ts) return "—";
+      const d = new Date(ts);
+      if (Number.isNaN(d.getTime())) return "—";
+      return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
+    }
+
+    function paintWalletMenuDetails(state) {
+      const solEl = document.getElementById("walletDetailSol");
+      const lamEl = document.getElementById("walletDetailLamports");
+      const pubEl = document.getElementById("walletDetailPubkey");
+      const updEl = document.getElementById("walletDetailUpdated");
+      const ppEl = document.getElementById("walletDetailPp");
+      const noteEl = document.getElementById("walletDetailNote");
+      const sessionRow = document.getElementById("walletDetailSessionRow");
+      const sessionEl = document.getElementById("walletDetailSession");
+      const explorerEl = document.getElementById("walletDetailExplorer");
+      if (!solEl) return;
+
+      const pubkey = resolveHeaderWalletPubkey();
+      const sol = headerWalletDetails.sol ?? headerWalletSol;
+      const lamports = headerWalletDetails.lamports;
+      const ppMin = headerWalletDetails.ppMinSol;
+
+      solEl.textContent = sol != null && Number.isFinite(sol) ? `${sol.toFixed(6)} SOL` : "—";
+      lamEl.textContent = lamports != null && Number.isFinite(lamports)
+        ? lamports.toLocaleString()
+        : "—";
+      pubEl.textContent = pubkey ? shortPubkey(pubkey) : "—";
+      pubEl.title = pubkey || "";
+      updEl.textContent = formatWalletUpdated(headerWalletDetails.updatedAt);
+      ppEl.textContent = `${ppMin} SOL`;
+
+      if (explorerEl) {
+        if (pubkey) {
+          explorerEl.href = `https://solscan.io/account/${encodeURIComponent(pubkey)}`;
+          explorerEl.hidden = false;
+        } else {
+          explorerEl.hidden = true;
+        }
+      }
+
+      if (noteEl) {
+        if (headerWalletDetails.belowPpMin) {
+          noteEl.textContent = `Below PumpPortal minimum — fund ≥ ${ppMin} SOL for Test/Trade streams.`;
+          noteEl.classList.add("warn");
+        } else {
+          noteEl.textContent = "On-chain wallet balance (not paper trading balance).";
+          noteEl.classList.remove("warn");
+        }
+      }
+
+      if (sessionRow && sessionEl) {
+        if (state?.mode === "trade") {
+          const realized = Number(state.pnl_sol);
+          const unreal = Number(state.unrealized_pnl_sol) || 0;
+          const r = Number.isFinite(realized) ? realized : 0;
+          const total = r + unreal;
+          const sign = total > 0 ? "+" : "";
+          sessionEl.textContent = `${sign}${total.toFixed(4)} SOL`;
+          sessionEl.classList.toggle("pnl-up", total > 0);
+          sessionEl.classList.toggle("pnl-down", total < 0);
+          sessionRow.hidden = false;
+        } else {
+          sessionRow.hidden = true;
+          sessionEl.textContent = "—";
+          sessionEl.classList.remove("pnl-up", "pnl-down");
+        }
+      }
+    }
+
+    function setHeaderWalletMenuOpen(open) {
+      const menu = document.getElementById("headerWalletMenu");
+      const btn = document.getElementById("headerWalletBtn");
+      if (!menu) return;
+      menu.hidden = !open;
+      if (btn) btn.setAttribute("aria-expanded", open ? "true" : "false");
+      if (open) {
+        paintWalletMenuDetails(lastRenderState);
+        pollHeaderWallet();
+      }
+    }
 
     function resolveHeaderWalletPubkey() {
       const valid = (pub) => pub && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(pub);
@@ -1915,27 +2795,78 @@
         const pub = (document.getElementById("accountPubkey")?.textContent || "").trim();
         if (valid(pub)) return pub;
       }
-      if (activeMode === "trade" && tradePubkeyInput) {
+      if (tradePubkeyInput) {
         const pub = sanitizeTradePubkey(tradePubkeyInput.value || "");
         if (valid(pub)) return pub;
       }
       return "";
     }
 
+    function applyWalletBalanceData(data) {
+      if (!data?.ok) return;
+      const sol = Number(data.sol);
+      if (!Number.isFinite(sol)) return;
+      const pubkey = String(data.pubkey || resolveHeaderWalletPubkey() || "").trim();
+      headerWalletSol = sol;
+      headerWalletDetails = {
+        sol,
+        lamports: Number(data.lamports),
+        pubkey,
+        updatedAt: Date.now(),
+        belowPpMin: !!data.below_pp_min,
+        ppMinSol: Number(data.pp_min_sol) || headerWalletDetails.ppMinSol,
+      };
+      if (pubkey) {
+        saveHeaderWalletCache(pubkey, sol, {
+          lamports: headerWalletDetails.lamports,
+          belowPpMin: headerWalletDetails.belowPpMin,
+          ppMinSol: headerWalletDetails.ppMinSol,
+        });
+      }
+      paintWalletMenuDetails(lastRenderState);
+    }
+
+    function setHeaderWalletSol(sol, pubkey) {
+      if (!Number.isFinite(sol)) return;
+      headerWalletSol = sol;
+      headerWalletDetails.sol = sol;
+      if (pubkey) {
+        headerWalletDetails.pubkey = pubkey;
+        saveHeaderWalletCache(pubkey, sol, {
+          lamports: headerWalletDetails.lamports,
+          belowPpMin: headerWalletDetails.belowPpMin,
+          ppMinSol: headerWalletDetails.ppMinSol,
+        });
+      }
+    }
+
+    function walletSolFromState(state) {
+      if (!state || state.mode !== "trade") return null;
+      const raw = state.wallet_sol;
+      if (raw == null || raw === "") return null;
+      const n = Number(raw);
+      return Number.isFinite(n) ? n : null;
+    }
+
     function syncHeaderAccountBalance(state) {
-      const wrapEl = document.getElementById("headerAccountBalance");
+      const wrapEl = document.getElementById("headerWalletWrap");
       const valueEl = document.getElementById("headerBalanceValue");
       if (!wrapEl || !valueEl) return;
 
       const pubkey = resolveHeaderWalletPubkey();
       if (!pubkey) {
         wrapEl.hidden = true;
+        setHeaderWalletMenuOpen(false);
         return;
       }
       wrapEl.hidden = false;
 
-      const fromState = Number(state?.wallet_sol);
-      const sol = Number.isFinite(fromState) ? fromState : headerWalletSol;
+      const fromState = walletSolFromState(state);
+      if (fromState != null) {
+        setHeaderWalletSol(fromState, pubkey);
+      }
+
+      const sol = headerWalletSol;
       if (sol != null && Number.isFinite(sol)) {
         valueEl.innerHTML =
           `<span class="header-balance-num">${sol.toFixed(4)}</span>` +
@@ -1943,15 +2874,12 @@
       } else {
         valueEl.textContent = "—";
       }
+      paintWalletMenuDetails(state);
     }
 
     async function pollHeaderWallet() {
       const pubkey = resolveHeaderWalletPubkey();
-      if (!pubkey) {
-        headerWalletSol = null;
-        syncHeaderAccountBalance({});
-        return;
-      }
+      if (!pubkey) return;
       try {
         const res = await fetch("/api/wallet_balance", {
           method: "POST",
@@ -1960,13 +2888,37 @@
         });
         const data = await res.json().catch(() => ({}));
         if (res.ok && data.ok) {
-          headerWalletSol = Number(data.sol);
-          syncHeaderAccountBalance({ wallet_sol: headerWalletSol });
+          applyWalletBalanceData(data);
+          syncHeaderAccountBalance(lastRenderState || {});
         }
       } catch (_) {}
     }
 
+    loadHeaderWalletCache();
+
+    document.getElementById("headerWalletBtn")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const menu = document.getElementById("headerWalletMenu");
+      const opening = !!menu?.hidden;
+      if (opening) setAccountPanelOpen(false);
+      setHeaderWalletMenuOpen(opening);
+    });
+    document.getElementById("headerWalletMenuClose")?.addEventListener("click", () => {
+      setHeaderWalletMenuOpen(false);
+    });
+    document.getElementById("headerWalletRefresh")?.addEventListener("click", () => {
+      pollHeaderWallet();
+    });
+    document.getElementById("headerWalletMenu")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+    });
+    document.addEventListener("click", () => {
+      const menu = document.getElementById("headerWalletMenu");
+      if (menu && !menu.hidden) setHeaderWalletMenuOpen(false);
+    });
+
     function render(state) {
+      lastRenderState = state;
       const balLabel = document.getElementById("balanceLabel");
       const balEl = document.getElementById("balance");
       if (state.mode === "trade") {
@@ -2085,6 +3037,10 @@
     startBtn.addEventListener("click", async () => {
       saveParams();
       clearStartError();
+      if (highMcExitConfigInvalid()) {
+        showHighMcExitAlert();
+        return;
+      }
       const body = formParams();
       if (activeMode === "live") {
         const creds = liveCredentialsOrAlert();
@@ -2106,6 +3062,11 @@
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
           const msg = data.message || `Start failed (${res.status}). Restart Flask if routes are missing.`;
+          if (/high mc threshold is on but no high-mc exit/i.test(msg)) {
+            showHighMcExitAlert();
+            if (data.state) render(data.state);
+            return;
+          }
           let title = "Cannot start";
           let focusEl = null;
           if (/signing wallet|fund this wallet/i.test(msg)) {
@@ -2157,16 +3118,23 @@
         const data = await res.json().catch(() => ({}));
         if (data.state) render(data.state);
         else if (!res.ok) alert(data.message || `Stop failed (${res.status})`);
+        pollHeaderWallet();
       } catch (err) {
         alert(`Stop failed: ${err && err.message ? err.message : err}`);
       }
     });
 
     enhanceNumberInputs();
-    loadParams();
-    syncParamEnabled();
-    syncWalletStopLabels();
-    saveParams();
+    migrateLegacyParams();
+    wirePresetsBar();
+    (async () => {
+      await loadPresetsFromServer();
+      if (!hasAccount) loadParams();
+      renderPresetsBar();
+      syncParamEnabled();
+      syncWalletStopLabels();
+      saveParams();
+    })();
 
     const SIDEBAR_KEY = "stonkbot_sidebar_width";
     const layoutEl = document.querySelector(".layout");

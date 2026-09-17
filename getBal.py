@@ -15,7 +15,7 @@ async def get_bal(public_key):
         print(f"WARNING: below PumpPortal minimum ({PP_MIN_SOL} SOL)")
 
 if __name__ == "__main__":
-    asyncio.run(get_bal(pp_pubkey))
+    asyncio.run(get_bal("BQh3HhDkvPYEpw6GXatzzE1oqMRQpGgRYRrihhpko4au"))
 
 # 249098744 lamports as of 7/22/2026 1:22 PM starting trades
 # 72000 messages in 2 hours 

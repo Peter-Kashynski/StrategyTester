@@ -34,6 +34,14 @@ from config import PP_MIN_SOL, get_wallet_sol
 from paper_bot import StrategyParams, bot
 from pp_wallet import create_pp_wallet
 from sim_bot import sim_bot
+from preset_store import (
+    clear_preset_slot,
+    get_user_state,
+    import_client_state,
+    save_mode_params,
+    save_preset_slot,
+    set_active_slot,
+)
 from trade_bot import BUY_SOL_DEFAULT, trade_bot
 
 app = Flask(__name__)
@@ -279,6 +287,9 @@ def api_start():
         return jsonify({"ok": False, "message": busy, "state": bot.snapshot()}), 400
     data = request.get_json(silent=True) or {}
     params = StrategyParams.from_dict(data)
+    mc_err = params.high_mc_exit_error()
+    if mc_err:
+        return jsonify({"ok": False, "message": mc_err, "state": bot.snapshot()}), 400
     ok, msg = bot.start(
         params,
         pp_api_key=str(data.get("pp_api_key") or ""),
@@ -364,6 +375,9 @@ def api_sim_start():
         return jsonify({"ok": False, "message": busy, "state": sim_bot.snapshot()}), 400
     data = request.get_json(silent=True) or {}
     params = StrategyParams.from_dict(data)
+    mc_err = params.high_mc_exit_error()
+    if mc_err:
+        return jsonify({"ok": False, "message": mc_err, "state": sim_bot.snapshot()}), 400
     ok, msg = sim_bot.start(params)
     return jsonify({"ok": ok, "message": msg, "state": sim_bot.snapshot()}), (200 if ok else 400)
 
@@ -415,6 +429,9 @@ def api_trade_start():
         return jsonify({"ok": False, "message": busy, "state": trade_bot.snapshot()}), 400
     data = request.get_json(silent=True) or {}
     params = StrategyParams.from_dict(data)
+    mc_err = params.high_mc_exit_error()
+    if mc_err:
+        return jsonify({"ok": False, "message": mc_err, "state": trade_bot.snapshot()}), 400
     ok, msg = trade_bot.start(
         params,
         pp_api_key=str(data.get("pp_api_key") or ""),
@@ -464,6 +481,152 @@ def api_trade_stream():
         mimetype="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+def _account_user_or_403():
+    user = _session_user()
+    if not user:
+        return None, (jsonify({"ok": False, "message": "Account required for cloud presets"}), 403)
+    return user, None
+
+
+@app.route("/api/presets", methods=["GET"])
+def api_presets_get():
+    user, err = _account_user_or_403()
+    if err:
+        return err
+    state = get_user_state(user["email"])
+    return jsonify({"ok": True, **state})
+
+
+@app.route("/api/presets/import", methods=["POST"])
+def api_presets_import():
+    user, err = _account_user_or_403()
+    if err:
+        return err
+    data = request.get_json(silent=True) or {}
+    replace = bool(data.get("replace"))
+    try:
+        state = import_client_state(
+            user["email"],
+            data.get("presets"),
+            data.get("modeParams"),
+            replace=replace,
+        )
+    except ValueError as e:
+        return jsonify({"ok": False, "message": str(e)}), 400
+    return jsonify({"ok": True, **state})
+
+
+@app.route("/api/presets/slot", methods=["PUT"])
+def api_presets_save_slot():
+    user, err = _account_user_or_403()
+    if err:
+        return err
+    data = request.get_json(silent=True) or {}
+    mode = str(data.get("mode") or "")
+    try:
+        slot = int(data.get("slot"))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "message": "Invalid slot"}), 400
+    name = str(data.get("name") or "").strip()
+    params = data.get("params")
+    if not isinstance(params, dict):
+        cur = get_user_state(user["email"])
+        slots = (cur.get("presets") or {}).get(mode, {}).get("slots") or []
+        existing = slots[slot] if 0 <= slot < len(slots) else None
+        if not existing or not isinstance(existing, dict):
+            return jsonify({"ok": False, "message": "Preset slot is empty"}), 400
+        params = existing.get("params") or {}
+        if not name:
+            name = str(existing.get("name") or f"Preset {slot + 1}")
+    if not name:
+        name = f"Preset {slot + 1}"
+    active_slot = data.get("activeSlot")
+    try:
+        active_int = int(active_slot) if active_slot is not None else slot
+    except (TypeError, ValueError):
+        active_int = slot
+    try:
+        state = save_preset_slot(
+            user["email"],
+            mode,
+            slot,
+            name,
+            params,
+            active_slot=active_int,
+        )
+    except ValueError as e:
+        return jsonify({"ok": False, "message": str(e)}), 400
+    return jsonify({"ok": True, **state})
+
+
+@app.route("/api/presets/slot", methods=["DELETE"])
+def api_presets_delete_slot():
+    user, err = _account_user_or_403()
+    if err:
+        return err
+    data = request.get_json(silent=True) or {}
+    mode = str(data.get("mode") or "")
+    try:
+        slot = int(data.get("slot"))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "message": "Invalid slot"}), 400
+    try:
+        state = clear_preset_slot(user["email"], mode, slot)
+    except ValueError as e:
+        return jsonify({"ok": False, "message": str(e)}), 400
+    return jsonify({"ok": True, **state})
+
+
+@app.route("/api/presets/mode-params", methods=["PUT"])
+def api_presets_mode_params():
+    user, err = _account_user_or_403()
+    if err:
+        return err
+    data = request.get_json(silent=True) or {}
+    mode = str(data.get("mode") or "")
+    params = data.get("params")
+    if not isinstance(params, dict):
+        return jsonify({"ok": False, "message": "Missing params"}), 400
+    active_slot = data.get("activeSlot")
+    active_int = None
+    if active_slot is not None:
+        try:
+            active_int = int(active_slot)
+        except (TypeError, ValueError):
+            active_int = None
+    try:
+        state = save_mode_params(
+            user["email"],
+            mode,
+            params,
+            active_slot=active_int,
+        )
+    except ValueError as e:
+        return jsonify({"ok": False, "message": str(e)}), 400
+    return jsonify({"ok": True, **state})
+
+
+@app.route("/api/presets/active-slot", methods=["PUT"])
+def api_presets_active_slot():
+    user, err = _account_user_or_403()
+    if err:
+        return err
+    data = request.get_json(silent=True) or {}
+    mode = str(data.get("mode") or "")
+    active_slot = data.get("activeSlot")
+    active_int = None
+    if active_slot is not None:
+        try:
+            active_int = int(active_slot)
+        except (TypeError, ValueError):
+            active_int = None
+    try:
+        state = set_active_slot(user["email"], mode, active_int)
+    except ValueError as e:
+        return jsonify({"ok": False, "message": str(e)}), 400
+    return jsonify({"ok": True, **state})
 
 
 if __name__ == "__main__":

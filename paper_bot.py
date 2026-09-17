@@ -130,6 +130,17 @@ class StrategyParams:
                 continue
         return cls(**cleaned)
 
+    def high_mc_exit_error(self) -> str | None:
+        if self.use_high_mc_threshold and not (
+            self.use_stoploss_ath_high or self.use_ath_stagnation_high
+        ):
+            return (
+                "High MC threshold is on but no high-MC exit rule is enabled. "
+                "Enable Stoploss vs ATH (high MC) and/or ATH stagnation (high MC), "
+                "or turn off High MC threshold."
+            )
+        return None
+
 
 @dataclass
 class TradeRecord:

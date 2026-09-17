@@ -384,6 +384,14 @@ class TradeBot:
             self._wallet_privkey = ""
             self._helius_api_key = ""
             self.open_positions = {}
+        if self._wallet_pubkey:
+            try:
+                sol = asyncio.run(get_wallet_sol(self._wallet_pubkey))
+                if sol is not None:
+                    self._cached_wallet_sol = float(sol)
+                    self._wallet_sol_updated_at = time.time()
+            except Exception:
+                pass
         self._log("Trade bot stopped", "status")
         return True, "Stopped"
 
