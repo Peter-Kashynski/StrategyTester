@@ -93,7 +93,10 @@
                 </div>
                 <div id="walletDetailSessionRow" hidden>
                   <dt>Session PnL</dt>
-                  <dd id="walletDetailSession">—</dd>
+                  <dd class="wallet-session-pnl-dd">
+                    <span id="walletDetailSession">—</span>
+                    <button type="button" class="wallet-session-pnl-toggle" id="sessionPnlUnitToggle" hidden>Show USD</button>
+                  </dd>
                 </div>
               </dl>
               <p class="header-wallet-menu-note" id="walletDetailNote"></p>
@@ -145,8 +148,35 @@
             <button type="button" class="reveal-btn" data-reveal="accountPrivkey">Show</button>
           </dd>
         </div>
+        <div id="accountHeliusSavedRow" hidden>
+          <dt>Helius API key</dt>
+          <dd>
+            <code id="accountHeliusKey" class="secret-mask"></code>
+            <button type="button" class="copy-btn" data-copy="accountHeliusKey">Copy</button>
+            <button type="button" class="reveal-btn" data-reveal="accountHeliusKey">Show</button>
+          </dd>
+        </div>
       </dl>
-      <p class="account-note">Fund this wallet ≥ {{ pp_min_sol }} SOL for Test/Trade streams. Helius is still entered under Trade credentials.</p>
+      <div class="account-helius-form" id="accountHeliusFormWrap">
+        <p class="account-helius-intro" id="accountHeliusIntro"></p>
+        <label class="account-helius-label">
+          <span>Helius API key (Trade)</span>
+          <input
+            id="accountHeliusInput"
+            type="password"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="paste free Helius API key or RPC URL"
+          />
+        </label>
+        <p class="account-helius-hint">
+          <a href="https://dashboard.helius.dev/signup?redirectTo=onboarding" target="_blank" rel="noopener noreferrer">Get a free Helius key</a>
+          · sends trades and reads fills for PnL
+        </p>
+        <p class="account-helius-error" id="accountHeliusError" hidden role="alert"></p>
+        <button type="button" class="account-helius-save" id="accountHeliusSave">Save to account</button>
+      </div>
+      <p class="account-note">Fund this wallet ≥ {{ pp_min_sol }} SOL for Test/Trade streams.</p>
       <button type="button" class="logout-btn account-logout" id="logoutBtn">Log out</button>
     </div>
     <div class="mode-blurb" id="modeBlurb" hidden></div>
@@ -217,7 +247,7 @@
                 </div>
                 <div id="tradeHelpAccount" hidden>
                   <p><strong>Already set up.</strong> Your account PumpPortal API key and wallet are in use for Trade.</p>
-                  <p>You still need a <strong>Helius API key</strong> below (sends trades and confirms fills). Set buy size under Entry. Open <strong>Account</strong> (top right) for your wallet keys.</p>
+                  <p>For Trade, paste your free <strong>Helius API key</strong> in <strong>Account</strong> (top right). It is saved to your account and used automatically — not under Credentials here. Set buy size under Entry.</p>
                 </div>
               </div>
             </div>
@@ -736,6 +766,17 @@
     </div>
   </div>
 
+  <div id="heliusErrorBackdrop"></div>
+  <div id="heliusErrorModal" role="alertdialog" aria-modal="true" aria-labelledby="heliusErrorTitle" aria-describedby="heliusErrorBody">
+    <div class="helius-error-badge">Trade setup</div>
+    <h3 id="heliusErrorTitle">Invalid Helius API key</h3>
+    <p id="heliusErrorBody"></p>
+    <div class="helius-error-actions">
+      <button type="button" id="heliusErrorDismiss">Close</button>
+      <button type="button" id="heliusErrorAccount" hidden>Open Account</button>
+    </div>
+  </div>
+
   <div id="presetDialogBackdrop"></div>
   <div id="presetDialog" role="dialog" aria-modal="true" aria-labelledby="presetDialogTitle">
     <div class="preset-dialog-badge" id="presetDialogBadge">Preset</div>
@@ -861,6 +902,7 @@
     const accountCredsFields = document.getElementById("accountCredsFields");
     const accountUsingNote = document.getElementById("accountUsingNote");
     const hasAccount = {{ "true" if has_account else "false" }};
+    let accountHeliusStored = "";
     const tradePubkeyInput = document.getElementById("tradePubkey");
     const tradePrivkeyInput = document.getElementById("tradePrivkey");
     const tradeHeliusInput = document.getElementById("tradeHeliusKey");
@@ -1051,7 +1093,7 @@
       if (accountCredsFields) accountCredsFields.hidden = hasAccount;
       if (accountUsingNote) accountUsingNote.hidden = !hasAccount;
       if (tradeWalletKeys) tradeWalletKeys.hidden = !showTrade || hasAccount;
-      tradeWalletFields.hidden = !showTrade;
+      tradeWalletFields.hidden = !showTrade || hasAccount;
       feesFoldSection.hidden = !showTrade;
       if (!showTrade) setFoldOpen(toggleFeesFold, feesFoldBody, false);
       paperSizeInputs.hidden = showTrade;
@@ -1167,6 +1209,7 @@
     }
 
     function clearStartError() {
+      hideHeliusTradeError();
       const el = document.getElementById("startErrorBanner");
       if (el) {
         el.hidden = true;
@@ -1174,8 +1217,72 @@
       }
     }
 
+    function isHeliusErrorMessage(msg) {
+      return /helius/i.test(String(msg || ""));
+    }
+
+    function showHeliusTradeError(msg) {
+      const text = String(msg || "Helius API key is invalid or unauthorized");
+      const modal = document.getElementById("heliusErrorModal");
+      const backdrop = document.getElementById("heliusErrorBackdrop");
+      const bodyEl = document.getElementById("heliusErrorBody");
+      const accountBtn = document.getElementById("heliusErrorAccount");
+      const accountErr = document.getElementById("accountHeliusError");
+
+      if (bodyEl) {
+        if (hasAccount) {
+          bodyEl.textContent =
+            `${text}\n\nThe Helius key saved on your account does not work. ` +
+            "Open Account (top right), paste a valid free key from dashboard.helius.dev, and click Save to account.";
+        } else {
+          bodyEl.textContent =
+            `${text}\n\nPaste a valid free Helius API key under PumpPortal credentials before starting Trade.`;
+        }
+      }
+      if (accountBtn) accountBtn.hidden = !hasAccount;
+
+      if (activeMode === "trade" || activeMode === "live") {
+        const banner = document.getElementById("startErrorBanner");
+        if (banner) {
+          liveCredsPanel.hidden = false;
+          banner.hidden = false;
+          banner.innerHTML =
+            `<strong>Invalid Helius API key</strong>` +
+            `<span class="start-error-detail">${escapeHtml(text)}</span>`;
+          banner.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }
+        shakeLiveCreds();
+      }
+
+      if (hasAccount) {
+        if (accountErr) {
+          accountErr.textContent = text;
+          accountErr.hidden = false;
+        }
+      } else {
+        setFieldError(tradeHeliusInput, tradeHeliusError, text);
+        tradeWalletFields.hidden = false;
+        try { tradeHeliusInput.focus(); } catch (_) {}
+      }
+
+      if (modal && backdrop) {
+        backdrop.classList.add("open");
+        modal.classList.add("open");
+        document.getElementById("heliusErrorDismiss")?.focus();
+      }
+    }
+
+    function hideHeliusTradeError() {
+      document.getElementById("heliusErrorBackdrop")?.classList.remove("open");
+      document.getElementById("heliusErrorModal")?.classList.remove("open");
+    }
+
     function showStartError(msg, { title = "Cannot start", focusEl = null } = {}) {
       const text = String(msg || "Start failed");
+      if (activeMode === "trade" && isHeliusErrorMessage(text)) {
+        showHeliusTradeError(text);
+        return;
+      }
       if (activeMode === "sim") {
         showPpProvisionNote(`${title}: ${text}`, true);
         return;
@@ -1184,7 +1291,9 @@
       if (el) {
         liveCredsPanel.hidden = false;
         el.hidden = false;
-        el.innerHTML = `<strong>${escapeHtml(title)}</strong>${escapeHtml(text)}`;
+        el.innerHTML =
+          `<strong>${escapeHtml(title)}</strong>` +
+          `<span class="start-error-detail">${escapeHtml(text)}</span>`;
         el.scrollIntoView({ behavior: "smooth", block: "nearest" });
       }
       shakeLiveCreds();
@@ -1195,8 +1304,16 @@
         setFieldError(tradePubkeyInput, tradePubkeyError, text);
       } else if (/private key/i.test(text)) {
         setFieldError(tradePrivkeyInput, tradePrivkeyError, text);
-      } else if (/helius/i.test(text)) {
-        setFieldError(tradeHeliusInput, tradeHeliusError, text);
+      } else if (isHeliusErrorMessage(text)) {
+        if (hasAccount) {
+          const accountErr = document.getElementById("accountHeliusError");
+          if (accountErr) {
+            accountErr.textContent = text;
+            accountErr.hidden = false;
+          }
+        } else {
+          setFieldError(tradeHeliusInput, tradeHeliusError, text);
+        }
       } else if (/api key/i.test(text)) {
         setFieldError(ppApiKeyInput, ppApiKeyError, text);
       } else if (/buy size/i.test(text)) {
@@ -1245,7 +1362,15 @@
       key = key.replace(/^["']|["']$/g, "");
       key = key.replace(/^HELIUS_API_KEY\s*=\s*/i, "");
       key = key.replace(/[\u200B-\u200D\uFEFF]/g, "");
-      return key.trim();
+      key = key.trim();
+      if (/^https?:\/\//i.test(key)) {
+        try {
+          const url = new URL(key);
+          const fromQuery = url.searchParams.get("api-key") || url.searchParams.get("api_key");
+          if (fromQuery && fromQuery.trim()) key = fromQuery.trim();
+        } catch (_) {}
+      }
+      return key;
     }
 
     function loadTradeCreds() {
@@ -1296,9 +1421,11 @@
 
       const wallet_pubkey = sanitizeTradePubkey(tradePubkeyInput.value);
       const wallet_privkey = String(tradePrivkeyInput.value || "").trim();
-      const helius_api_key = sanitizeHeliusKey(tradeHeliusInput.value);
+      const helius_api_key = hasAccount
+        ? sanitizeHeliusKey(accountHeliusStored)
+        : sanitizeHeliusKey(tradeHeliusInput.value);
       tradePubkeyInput.value = wallet_pubkey;
-      tradeHeliusInput.value = helius_api_key;
+      if (!hasAccount) tradeHeliusInput.value = helius_api_key;
       const buyRaw = tradeBuySolInput.value;
       const buy_sol = Number(buyRaw);
       const badPub = !wallet_pubkey || !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(wallet_pubkey);
@@ -1320,13 +1447,15 @@
         tradePrivkeyError,
         badPriv ? "Enter wallet private key (base58)." : ""
       );
-      setFieldError(
-        tradeHeliusInput,
-        tradeHeliusError,
-        badHelius
-          ? "Enter your free Helius API key (dashboard.helius.dev)."
-          : ""
-      );
+      if (!hasAccount) {
+        setFieldError(
+          tradeHeliusInput,
+          tradeHeliusError,
+          badHelius
+            ? "Enter your free Helius API key (dashboard.helius.dev)."
+            : ""
+        );
+      }
       setFieldError(
         tradeBuySolInput,
         tradeBuySolError,
@@ -1335,13 +1464,22 @@
 
       if (badPub || badPriv || badHelius || badBuy) {
         liveCredsPanel.hidden = false;
-        tradeWalletFields.hidden = false;
+        if (!hasAccount) tradeWalletFields.hidden = false;
         tradeSizeInputs.hidden = false;
-        if (badPub) tradePubkeyInput.focus();
+        if (badHelius && hasAccount) {
+          showAlert(
+            "Helius key required",
+            "Trade needs a Helius API key to send transactions and read fills.\n\n" +
+              "Open Account (top right), paste your free key under Helius, and click Save to account. " +
+              "It is stored with your login — you will not enter it under Trade credentials.",
+          );
+          setAccountPanelOpen(true);
+          document.getElementById("accountHeliusInput")?.focus();
+        } else if (badPub) tradePubkeyInput.focus();
         else if (badPriv) tradePrivkeyInput.focus();
         else if (badHelius) tradeHeliusInput.focus();
         else tradeBuySolInput.focus();
-        shakeLiveCreds();
+        if (!(badHelius && hasAccount)) shakeLiveCreds();
         return null;
       }
       saveTradeCreds();
@@ -1450,6 +1588,28 @@
       return "•".repeat(Math.min(28, Math.max(12, s.length > 40 ? 24 : 16)));
     }
 
+    function syncAccountHeliusUi(user) {
+      const intro = document.getElementById("accountHeliusIntro");
+      const savedRow = document.getElementById("accountHeliusSavedRow");
+      const heliusEl = document.getElementById("accountHeliusKey");
+      const saveBtn = document.getElementById("accountHeliusSave");
+      const errEl = document.getElementById("accountHeliusError");
+      const hasHelius = !!(accountHeliusStored && accountHeliusStored.length >= 8);
+      if (savedRow) savedRow.hidden = !hasHelius;
+      if (heliusEl) {
+        heliusEl.dataset.full = accountHeliusStored || "";
+        heliusEl.textContent = maskSecret(accountHeliusStored || "");
+        heliusEl.classList.add("secret-mask");
+      }
+      if (intro) {
+        intro.textContent = hasHelius
+          ? "Helius is saved on your account and used for Trade automatically (not under Credentials)."
+          : "First time using Trade? Paste your free Helius API key here. It is saved to your account — you do not enter it under Trade credentials.";
+      }
+      if (saveBtn) saveBtn.textContent = hasHelius ? "Update saved key" : "Save to account";
+      if (errEl) errEl.hidden = true;
+    }
+
     function fillAccountPanel(user) {
       const emailEl = document.getElementById("accountEmail");
       const apiEl = document.getElementById("accountApiKey");
@@ -1464,6 +1624,8 @@
       privEl.dataset.full = user.private_key || "";
       privEl.textContent = maskSecret(user.private_key || "");
       privEl.classList.add("secret-mask");
+      accountHeliusStored = sanitizeHeliusKey(user.helius_api_key || "");
+      syncAccountHeliusUi(user);
       document.querySelectorAll("#accountPanel .reveal-btn").forEach((btn) => {
         btn.textContent = "Show";
       });
@@ -1471,7 +1633,7 @@
     }
 
     function remaskAccountSecrets() {
-      ["accountApiKey", "accountPrivkey"].forEach((id) => {
+      ["accountApiKey", "accountPrivkey", "accountHeliusKey"].forEach((id) => {
         const el = document.getElementById(id);
         if (!el) return;
         el.textContent = maskSecret(el.dataset.full || "");
@@ -1500,6 +1662,71 @@
     });
     document.getElementById("accountClose")?.addEventListener("click", () => {
       setAccountPanelOpen(false);
+    });
+
+    async function saveAccountHeliusKey() {
+      const input = document.getElementById("accountHeliusInput");
+      const errEl = document.getElementById("accountHeliusError");
+      const saveBtn = document.getElementById("accountHeliusSave");
+      if (!input || !hasAccount) return;
+      const helius_api_key = sanitizeHeliusKey(input.value);
+      if (!helius_api_key || helius_api_key.length < 8) {
+        if (errEl) {
+          errEl.textContent = "Enter a valid Helius API key or RPC URL.";
+          errEl.hidden = false;
+        }
+        input.focus();
+        return;
+      }
+      if (errEl) errEl.hidden = true;
+      if (saveBtn) saveBtn.disabled = true;
+      try {
+        const res = await fetch("/api/me/helius", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ helius_api_key }),
+        });
+        let data = {};
+        const rawBody = await res.text();
+        try {
+          data = rawBody ? JSON.parse(rawBody) : {};
+        } catch (_) {
+          data = {};
+        }
+        if (!res.ok || !data.ok) {
+          if (errEl) {
+            let msg = (data && data.message) || "";
+            if (!msg && res.status === 404) {
+              msg = "Save endpoint not found — restart the Flask app and try again.";
+            } else if (!msg) {
+              msg = `Could not save Helius key (HTTP ${res.status}). Restart Flask if you recently updated the app.`;
+            }
+            errEl.textContent = msg;
+            errEl.hidden = false;
+          }
+          return;
+        }
+        input.value = "";
+        if (data.user) fillAccountPanel(data.user);
+      } catch (err) {
+        if (errEl) {
+          errEl.textContent = err && err.message ? err.message : String(err);
+          errEl.hidden = false;
+        }
+      } finally {
+        if (saveBtn) saveBtn.disabled = false;
+      }
+    }
+
+    document.getElementById("accountHeliusSave")?.addEventListener("click", () => {
+      saveAccountHeliusKey();
+    });
+    document.getElementById("accountHeliusInput")?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        saveAccountHeliusKey();
+      }
     });
 
     document.querySelectorAll("#accountPanel .copy-btn").forEach((btn) => {
@@ -2421,6 +2648,14 @@
     confirmCancel.addEventListener("click", () => hideConfirm(false));
     confirmOk.addEventListener("click", () => hideConfirm(true));
 
+    document.getElementById("heliusErrorBackdrop")?.addEventListener("click", hideHeliusTradeError);
+    document.getElementById("heliusErrorDismiss")?.addEventListener("click", hideHeliusTradeError);
+    document.getElementById("heliusErrorAccount")?.addEventListener("click", () => {
+      hideHeliusTradeError();
+      setAccountPanelOpen(true);
+      document.getElementById("accountHeliusInput")?.focus();
+    });
+
     const presetDialogBackdrop = document.getElementById("presetDialogBackdrop");
     const presetDialog = document.getElementById("presetDialog");
     const presetDialogBadge = document.getElementById("presetDialogBadge");
@@ -2505,6 +2740,10 @@
 
     document.addEventListener("keydown", (e) => {
       if (e.key !== "Escape") return;
+      if (document.getElementById("heliusErrorModal")?.classList.contains("open")) {
+        hideHeliusTradeError();
+        return;
+      }
       if (presetDialog.classList.contains("open")) {
         hidePresetDialog(presetDialogMode === "confirm" ? false : null);
         return;
@@ -2713,6 +2952,52 @@
       return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
     }
 
+    const SESSION_PNL_USD_KEY = "stonkbot_session_pnl_usd_v1";
+    let sessionPnlShowUsd = false;
+    let cachedSolUsd = null;
+
+    try {
+      sessionPnlShowUsd = localStorage.getItem(SESSION_PNL_USD_KEY) === "1";
+    } catch (_) {}
+
+    function sessionPnlTotalFromState(state) {
+      const realized = Number(state?.pnl_sol);
+      const unreal = Number(state?.unrealized_pnl_sol) || 0;
+      const r = Number.isFinite(realized) ? realized : 0;
+      return r + unreal;
+    }
+
+    function formatSessionPnlDisplay(totalSol) {
+      if (!sessionPnlShowUsd) {
+        const sign = totalSol > 0 ? "+" : "";
+        return `${sign}${totalSol.toFixed(4)} SOL`;
+      }
+      const price = cachedSolUsd;
+      if (price == null || !Number.isFinite(price)) {
+        return "Loading USD…";
+      }
+      const usd = totalSol * price;
+      const sign = usd > 0 ? "+" : usd < 0 ? "-" : "";
+      return `${sign}$${Math.abs(usd).toFixed(2)} USD`;
+    }
+
+    async function refreshSolUsdPrice() {
+      try {
+        const res = await fetch("/api/sol_price");
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.ok && Number.isFinite(Number(data.usd))) {
+          cachedSolUsd = Number(data.usd);
+          return cachedSolUsd;
+        }
+      } catch (_) {}
+      return null;
+    }
+
+    function updateSessionPnlToggleLabel() {
+      const btn = document.getElementById("sessionPnlUnitToggle");
+      if (btn) btn.textContent = sessionPnlShowUsd ? "Show SOL" : "Show USD";
+    }
+
     function paintWalletMenuDetails(state) {
       const solEl = document.getElementById("walletDetailSol");
       const lamEl = document.getElementById("walletDetailLamports");
@@ -2752,27 +3037,35 @@
         if (headerWalletDetails.belowPpMin) {
           noteEl.textContent = `Below PumpPortal minimum — fund ≥ ${ppMin} SOL for Test/Trade streams.`;
           noteEl.classList.add("warn");
+          noteEl.hidden = false;
         } else {
-          noteEl.textContent = "On-chain wallet balance (not paper trading balance).";
+          noteEl.textContent = "";
           noteEl.classList.remove("warn");
+          noteEl.hidden = true;
         }
       }
 
+      const sessionToggle = document.getElementById("sessionPnlUnitToggle");
       if (sessionRow && sessionEl) {
         if (state?.mode === "trade") {
-          const realized = Number(state.pnl_sol);
-          const unreal = Number(state.unrealized_pnl_sol) || 0;
-          const r = Number.isFinite(realized) ? realized : 0;
-          const total = r + unreal;
-          const sign = total > 0 ? "+" : "";
-          sessionEl.textContent = `${sign}${total.toFixed(4)} SOL`;
-          sessionEl.classList.toggle("pnl-up", total > 0);
-          sessionEl.classList.toggle("pnl-down", total < 0);
+          const total = sessionPnlTotalFromState(state);
+          sessionEl.textContent = formatSessionPnlDisplay(total);
+          const sessionDd = sessionEl.closest(".wallet-session-pnl-dd");
+          if (sessionDd) {
+            sessionDd.classList.toggle("pnl-up", total > 0);
+            sessionDd.classList.toggle("pnl-down", total < 0);
+          }
           sessionRow.hidden = false;
+          if (sessionToggle) {
+            sessionToggle.hidden = false;
+            updateSessionPnlToggleLabel();
+          }
         } else {
           sessionRow.hidden = true;
           sessionEl.textContent = "—";
-          sessionEl.classList.remove("pnl-up", "pnl-down");
+          const sessionDd = sessionEl.closest(".wallet-session-pnl-dd");
+          if (sessionDd) sessionDd.classList.remove("pnl-up", "pnl-down");
+          if (sessionToggle) sessionToggle.hidden = true;
         }
       }
     }
@@ -2784,7 +3077,11 @@
       menu.hidden = !open;
       if (btn) btn.setAttribute("aria-expanded", open ? "true" : "false");
       if (open) {
-        paintWalletMenuDetails(lastRenderState);
+        if (sessionPnlShowUsd && cachedSolUsd == null) {
+          refreshSolUsdPrice().then(() => paintWalletMenuDetails(lastRenderState));
+        } else {
+          paintWalletMenuDetails(lastRenderState);
+        }
         pollHeaderWallet();
       }
     }
@@ -2908,6 +3205,18 @@
     });
     document.getElementById("headerWalletRefresh")?.addEventListener("click", () => {
       pollHeaderWallet();
+    });
+    document.getElementById("sessionPnlUnitToggle")?.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      sessionPnlShowUsd = !sessionPnlShowUsd;
+      try {
+        localStorage.setItem(SESSION_PNL_USD_KEY, sessionPnlShowUsd ? "1" : "0");
+      } catch (_) {}
+      updateSessionPnlToggleLabel();
+      if (sessionPnlShowUsd && cachedSolUsd == null) {
+        await refreshSolUsdPrice();
+      }
+      paintWalletMenuDetails(lastRenderState);
     });
     document.getElementById("headerWalletMenu")?.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -3084,9 +3393,10 @@
           } else if (/public key/i.test(msg)) {
             title = "Public key";
             focusEl = tradePubkeyInput;
-          } else if (/helius/i.test(msg)) {
-            title = "Helius";
-            focusEl = tradeHeliusInput;
+          } else if (isHeliusErrorMessage(msg)) {
+            showHeliusTradeError(msg);
+            if (data.state) render(data.state);
+            return;
           } else if (/buy size/i.test(msg)) {
             title = "Buy size";
             focusEl = tradeBuySolInput;
@@ -3191,6 +3501,10 @@
     if (tradePubkeyInput) {
       tradePubkeyInput.addEventListener("change", pollHeaderWallet);
       tradePubkeyInput.addEventListener("blur", pollHeaderWallet);
+    }
+    updateSessionPnlToggleLabel();
+    if (sessionPnlShowUsd) {
+      refreshSolUsdPrice().then(() => paintWalletMenuDetails(lastRenderState));
     }
     syncHeaderAccountBalance({});
     pollHeaderWallet();

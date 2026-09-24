@@ -7,12 +7,12 @@ import sqlite3
 import threading
 from dataclasses import asdict
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
+from data_paths import project_data_dir
 from paper_bot import StrategyParams
 
-DATA_DIR = Path(__file__).resolve().parent / "data"
+DATA_DIR = project_data_dir()
 DB_PATH = DATA_DIR / "stonkbot.db"
 
 MODES = ("sim", "live", "trade")

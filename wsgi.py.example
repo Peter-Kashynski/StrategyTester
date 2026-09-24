@@ -1,0 +1,16 @@
+# PythonAnywhere: copy to wsgi.py and set paths to your home directory.
+# In the Web tab, point WSGI at this file's `application`.
+
+import os
+import sys
+
+PROJECT = "/home/YOURUSERNAME/StonkBot3"
+DATA = "/home/YOURUSERNAME/StonkBot3/data"
+
+if PROJECT not in sys.path:
+    sys.path.insert(0, PROJECT)
+
+os.environ["STONKBOT_DATA_DIR"] = DATA
+os.environ["STONKBOT_SESSION_SECURE"] = "1"
+
+from app import app as application  # noqa: E402

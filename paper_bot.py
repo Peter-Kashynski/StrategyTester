@@ -777,7 +777,10 @@ class PaperBot:
                             if message == "Less than ten holders":
                                 continue
                             if message == "Top Holder owns too much":
-                                self._log(f"Top holder too much {res} — {link}", "skip")
+                                self._log(
+                                    f"{top_holder_max_skip_message(res, params.top_holder_max_pct)} — {link}",
+                                    "skip",
+                                )
                                 if params.enforce_top_holder_max:
                                     banned_coins.add(mint)
                                     await self._unwatch_tokens(
@@ -1140,6 +1143,14 @@ def update_top_ten(mint, wallet, amount, top_ten_holders) -> None:
         lst.sort(key=lambda x: x[1], reverse=True)
         lst = lst[:10]
     top_ten_holders[mint] = lst
+
+
+def top_holder_max_skip_message(percents, max_pct: float) -> str:
+    top = percents[0] if percents else 0.0
+    return (
+        f"No buy: largest holder owns {top:g}% of supply "
+        f"(your max top-holder limit is {max_pct:g}%)"
+    )
 
 
 def check_top_ten(top_ten_holders, mint, params: StrategyParams | None = None):

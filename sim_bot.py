@@ -14,6 +14,7 @@ from paper_bot import (
     StrategyParams,
     TradeRecord,
     check_top_ten,
+    top_holder_max_skip_message,
     get_volume,
     holder_top_pct,
     holder_top3_pct,
@@ -392,7 +393,10 @@ class SimBot:
             if message == "Less than ten holders":
                 return
             if message == "Top Holder owns too much":
-                self._log(f"Top holder too much {res} — {link}", "skip")
+                self._log(
+                    f"{top_holder_max_skip_message(res, params.top_holder_max_pct)} — {link}",
+                    "skip",
+                )
                 if params.enforce_top_holder_max:
                     coin["banned"] = True
                     coin["done"] = True

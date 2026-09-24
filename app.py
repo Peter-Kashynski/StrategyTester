@@ -1,5 +1,5 @@
 
-# start - 95,480,866
+# start -
 
 
 """Flask UI for live paper strategy testing + free simulator + real trade."""
@@ -28,9 +28,10 @@ from auth_users import (
     create_user,
     get_user,
     public_user_payload,
+    set_user_helius_api_key,
     verify_login,
 )
-from config import PP_MIN_SOL, get_wallet_sol
+from config import PP_MIN_SOL, get_sol_price, get_wallet_sol
 from paper_bot import StrategyParams, bot
 from pp_wallet import create_pp_wallet
 from sim_bot import sim_bot
@@ -43,6 +44,7 @@ from preset_store import (
     set_active_slot,
 )
 from trade_bot import BUY_SOL_DEFAULT, trade_bot
+from trade_exec import verify_helius_api_key_sync
 
 app = Flask(__name__)
 
@@ -51,7 +53,9 @@ def _load_secret_key() -> str:
     env = (os.getenv("FLASK_SECRET_KEY") or "").strip()
     if env:
         return env
-    path = Path(__file__).resolve().parent / "data" / "secret_key.txt"
+    from data_paths import project_data_dir
+
+    path = project_data_dir() / "secret_key.txt"
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
         key = path.read_text(encoding="utf-8").strip()
@@ -63,9 +67,15 @@ def _load_secret_key() -> str:
 
 
 app.secret_key = _load_secret_key()
+_session_secure = os.getenv("STONKBOT_SESSION_SECURE", "").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=_session_secure,
 )
 
 
@@ -256,6 +266,35 @@ def api_me():
     return jsonify({"ok": False, "message": "Sign in required"}), 401
 
 
+@app.route("/api/me/helius", methods=["PUT", "POST"])
+def api_me_helius():
+    user = _session_user()
+    if not user:
+        return jsonify({"ok": False, "message": "Sign in required"}), 401
+    data = request.get_json(silent=True) or {}
+    raw = str(data.get("helius_api_key") or data.get("heliusKey") or "").strip()
+    if not raw:
+        return jsonify({
+            "ok": False,
+            "message": "Missing Helius API key in request body.",
+        }), 400
+    helius_ok, helius_err = verify_helius_api_key_sync(raw)
+    if not helius_ok:
+        return jsonify({"ok": False, "message": helius_err}), 400
+    try:
+        updated, err = set_user_helius_api_key(user["email"], raw)
+    except Exception as e:
+        return jsonify({"ok": False, "message": str(e)}), 500
+    if err:
+        return jsonify({"ok": False, "message": err}), 400
+    if not updated:
+        return jsonify({"ok": False, "message": "Could not update account."}), 500
+    return jsonify({
+        "ok": True,
+        "user": public_user_payload(updated, include_secrets=True),
+    })
+
+
 @app.route("/")
 def index():
     user = _session_user()
@@ -335,6 +374,17 @@ def api_stream():
         mimetype="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@app.route("/api/sol_price")
+def api_sol_price():
+    try:
+        usd = asyncio.run(get_sol_price())
+    except Exception:
+        usd = None
+    if usd is None or not isinstance(usd, (int, float)) or float(usd) <= 0:
+        return jsonify({"ok": False, "message": "Could not fetch SOL price"}), 502
+    return jsonify({"ok": True, "usd": float(usd)})
 
 
 @app.route("/api/wallet_balance", methods=["POST"])
@@ -432,12 +482,16 @@ def api_trade_start():
     mc_err = params.high_mc_exit_error()
     if mc_err:
         return jsonify({"ok": False, "message": mc_err, "state": trade_bot.snapshot()}), 400
+    session_user = _session_user()
+    helius_api_key = str(data.get("helius_api_key") or "").strip()
+    if session_user and not helius_api_key:
+        helius_api_key = str(session_user.get("helius_api_key") or "").strip()
     ok, msg = trade_bot.start(
         params,
         pp_api_key=str(data.get("pp_api_key") or ""),
         wallet_pubkey=str(data.get("wallet_pubkey") or ""),
         wallet_privkey=str(data.get("wallet_privkey") or ""),
-        helius_api_key=str(data.get("helius_api_key") or ""),
+        helius_api_key=helius_api_key,
         buy_sol=data.get("buy_sol", BUY_SOL_DEFAULT),
     )
     return jsonify({"ok": ok, "message": msg, "state": trade_bot.snapshot()}), (200 if ok else 400)

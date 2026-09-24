@@ -5,12 +5,14 @@ from __future__ import annotations
 import json
 import re
 import threading
-from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 from werkzeug.security import check_password_hash, generate_password_hash
 
-DATA_DIR = Path(__file__).resolve().parent / "data"
+from data_paths import project_data_dir
+
+DATA_DIR = project_data_dir()
 USERS_PATH = DATA_DIR / "users.json"
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -112,9 +114,65 @@ def verify_login(email: str, password: str) -> tuple[dict[str, Any] | None, str 
         return None, err
     if not password:
         return None, "Enter your password"
+    with _lock:
+        users = _load().get("users") or {}
+    if not users:
+        return None, (
+            "No accounts on this server yet. Register a new account here, or copy your "
+            "local data/users.json to the server (set STONKBOT_DATA_DIR on PythonAnywhere)."
+        )
     user = get_user(email)
-    if not user or not check_password_hash(user.get("password_hash") or "", password):
+    if not user:
         return None, "Invalid email or password"
+    stored_hash = user.get("password_hash") or ""
+    if not stored_hash or not check_password_hash(stored_hash, password):
+        return None, "Invalid email or password"
+    out = dict(user)
+    out.pop("password_hash", None)
+    return out, None
+
+
+def sanitize_helius_api_key(raw: str) -> str:
+    key = (raw or "").strip().strip('"').strip("'")
+    if key.lower().startswith("helius_api_key"):
+        key = key.split("=", 1)[-1].strip()
+    if key.startswith("http://") or key.startswith("https://"):
+        try:
+            parsed = urlparse(key)
+            qs = parse_qs(parsed.query)
+            extracted = (qs.get("api-key") or qs.get("api_key") or [None])[0]
+            if extracted and str(extracted).strip():
+                key = str(extracted).strip()
+        except Exception:
+            pass
+    return key
+
+
+def validate_helius_api_key(raw: str) -> str | None:
+    key = sanitize_helius_api_key(raw)
+    if len(key) < 8:
+        return "Enter a valid Helius API key or RPC URL"
+    return None
+
+
+def set_user_helius_api_key(email: str, helius_api_key: str) -> tuple[dict[str, Any] | None, str | None]:
+    err = validate_helius_api_key(helius_api_key)
+    if err:
+        return None, err
+    key = normalize_email(email)
+    stored = sanitize_helius_api_key(helius_api_key)
+    with _lock:
+        data = _load()
+        user = data["users"].get(key)
+        if not user or not isinstance(user, dict):
+            return None, "Account not found"
+        user = dict(user)
+        user["helius_api_key"] = stored
+        data["users"][key] = user
+        try:
+            _save(data)
+        except OSError as e:
+            return None, f"Could not write account file: {e}"
     out = dict(user)
     out.pop("password_hash", None)
     return out, None
@@ -124,8 +182,10 @@ def public_user_payload(user: dict[str, Any], *, include_secrets: bool = False) 
     payload = {
         "email": user.get("email") or "",
         "wallet_pubkey": user.get("wallet_pubkey") or "",
+        "has_helius_api_key": bool((user.get("helius_api_key") or "").strip()),
     }
     if include_secrets:
         payload["pp_api_key"] = user.get("pp_api_key") or ""
         payload["private_key"] = user.get("private_key") or ""
+        payload["helius_api_key"] = user.get("helius_api_key") or ""
     return payload

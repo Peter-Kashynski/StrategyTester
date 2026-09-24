@@ -4,3 +4,12 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+
+# Local CLI / dev scripts (Flask deploy does not need these)
+send_sol.py
+main.py
+realTest.py
+simpleBuy.py
+includingGT60.py
+getBal.py
+legacy_config.py

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any
 
 import aiohttp
@@ -36,6 +37,87 @@ def helius_rpc_url(helius_api_key: str | None = None) -> str:
     if url:
         return url
     raise RuntimeError("Helius API key is required")
+
+
+def _helius_rpc_error_message(data: Any, http_status: int) -> str | None:
+    if http_status in (401, 403):
+        return "Helius API key is invalid or unauthorized"
+    if not isinstance(data, dict):
+        return None
+    err = data.get("error")
+    if not err:
+        return None
+    msg = str(err.get("message") or err) if isinstance(err, dict) else str(err)
+    low = msg.lower()
+    if any(
+        token in low
+        for token in ("api key", "api-key", "unauthorized", "invalid", "forbidden", "authentication")
+    ):
+        return "Helius API key is invalid or unauthorized"
+    return f"Helius RPC error: {msg}"
+
+
+async def verify_helius_rpc(raw: str) -> tuple[bool, str]:
+    """Ping Helius with the user's key — no .env fallback."""
+    rpc_url = normalize_helius_rpc(raw)
+    if not rpc_url:
+        return False, "Helius API key is required"
+    payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "getLatestBlockhash",
+        "params": [{"commitment": "confirmed"}],
+    }
+    connector = aiohttp.TCPConnector(ssl=False)
+    timeout = aiohttp.ClientTimeout(total=15)
+    try:
+        async with aiohttp.ClientSession(
+            connector=connector,
+            trust_env=False,
+            timeout=timeout,
+        ) as session:
+            async with session.post(
+                rpc_url,
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                ssl=False,
+            ) as resp:
+                if resp.status in (401, 403):
+                    return False, "Helius API key is invalid or unauthorized"
+                raw_body = await resp.text()
+                data: Any = None
+                if raw_body.strip():
+                    try:
+                        data = json.loads(raw_body)
+                    except json.JSONDecodeError:
+                        if resp.status >= 400:
+                            return False, "Helius API key is invalid or unauthorized"
+                        return False, "Helius RPC returned an unexpected response — check your API key"
+                rpc_err = _helius_rpc_error_message(data, resp.status)
+                if rpc_err:
+                    return False, rpc_err
+                if resp.status >= 400:
+                    return False, f"Helius RPC HTTP {resp.status}"
+                if isinstance(data, dict) and data.get("result") is not None:
+                    return True, ""
+                return False, "Helius RPC returned an unexpected response — check your API key"
+    except asyncio.TimeoutError:
+        return False, "Helius RPC timed out — check your key and network"
+    except aiohttp.ClientError as e:
+        return False, f"Could not reach Helius RPC: {e}"
+    except Exception as e:
+        return False, f"Could not verify Helius API key: {e}"
+
+
+def verify_helius_api_key_sync(raw: str) -> tuple[bool, str]:
+    try:
+        return asyncio.run(verify_helius_rpc(raw))
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(verify_helius_rpc(raw))
+        finally:
+            loop.close()
 
 
 async def _rpc_call(rpc_url: str, method: str, params: list[Any]) -> Any:

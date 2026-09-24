@@ -163,8 +163,32 @@ header {
   color: var(--text);
   word-break: break-all;
 }
-.header-wallet-details dd.pnl-up { color: #3dcc8c; }
-.header-wallet-details dd.pnl-down { color: #e85d5d; }
+.header-wallet-details dd.pnl-up,
+.header-wallet-details dd.pnl-up #walletDetailSession { color: #3dcc8c; }
+.header-wallet-details dd.pnl-down,
+.header-wallet-details dd.pnl-down #walletDetailSession { color: #e85d5d; }
+.wallet-session-pnl-dd {
+  flex-direction: column;
+  align-items: flex-start !important;
+  gap: 0.3rem !important;
+}
+.wallet-session-pnl-toggle {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  text-underline-offset: 0.12em;
+}
+.wallet-session-pnl-toggle:hover {
+  color: var(--text);
+}
 .wallet-detail-pub {
   font-family: ui-monospace, Consolas, monospace;
   font-size: 0.72rem !important;
@@ -444,6 +468,78 @@ html[data-feed-mode="trade"] #logFilterTx { display: inline-flex !important; }
 .account-creds .reveal-btn:hover {
   border-color: var(--accent);
   color: var(--accent);
+}
+.account-helius-form {
+  margin: 0 0 0.75rem;
+  padding: 0.7rem 0.75rem;
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.account-helius-intro {
+  margin: 0 0 0.55rem;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.account-helius-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.account-helius-label input {
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text);
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+}
+.account-helius-label input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.account-helius-hint {
+  margin: 0.35rem 0 0.55rem;
+  font-size: 0.68rem;
+  line-height: 1.35;
+  color: var(--muted);
+}
+.account-helius-hint a {
+  color: var(--accent);
+}
+.account-helius-error {
+  margin: 0 0 0.45rem;
+  font-size: 0.72rem;
+  color: var(--skip);
+}
+.account-helius-save {
+  width: 100%;
+  border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.45rem 0.65rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.account-helius-save:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.account-helius-save:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 .account-note {
   margin: 0 0 0.75rem;
@@ -802,6 +898,84 @@ html[data-feed-mode="trade"] #logFilterTx { display: inline-flex !important; }
   color: var(--sell);
   letter-spacing: 0.02em;
   text-transform: uppercase;
+}
+.start-error-detail {
+  display: block;
+  color: #f5c2c7;
+  font-weight: 500;
+}
+#heliusErrorBackdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 60;
+}
+#heliusErrorBackdrop.open { display: block; }
+#heliusErrorModal {
+  display: none;
+  position: fixed;
+  z-index: 70;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(440px, calc(100vw - 2rem));
+  background: var(--panel);
+  border: 1px solid color-mix(in srgb, var(--sell) 45%, var(--border));
+  border-radius: 12px;
+  padding: 1.15rem 1.25rem 1.2rem;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--sell) 12%, transparent),
+    0 20px 48px rgba(0, 0, 0, 0.5);
+}
+#heliusErrorModal.open { display: block; }
+.helius-error-badge {
+  display: inline-block;
+  margin-bottom: 0.55rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #1a0a0c;
+  background: var(--sell);
+}
+#heliusErrorModal h3 {
+  margin: 0 0 0.45rem;
+  font-size: 1.05rem;
+  letter-spacing: -0.01em;
+}
+#heliusErrorBody {
+  margin: 0 0 1rem;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.45;
+  white-space: pre-line;
+}
+.helius-error-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+.helius-error-actions button {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 0.45rem 0.85rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.helius-error-actions button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+#heliusErrorAccount {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 .field-meta {
   margin: 0.1rem 0 0;
