@@ -118,8 +118,9 @@ def verify_login(email: str, password: str) -> tuple[dict[str, Any] | None, str 
         users = _load().get("users") or {}
     if not users:
         return None, (
-            "No accounts on this server yet. Register a new account here, or copy your "
-            "local data/users.json to the server (set STONKBOT_DATA_DIR on PythonAnywhere)."
+            "No accounts on this server yet. Use Create account here, or copy your local "
+            "data/users.json into this app's data folder on the host (Render disk/shell, "
+            "or STONKBOT_DATA_DIR if you use persistent storage)."
         )
     user = get_user(email)
     if not user:
