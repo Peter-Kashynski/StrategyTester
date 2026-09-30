@@ -1,0 +1,13 @@
+# Optional Render Blueprint. You can also configure the same in the dashboard.
+services:
+  - type: web
+    name: strategy-tester
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 120
+    envVars:
+      - key: STONKBOT_SESSION_SECURE
+        value: "1"
+      - key: PYTHON_VERSION
+        value: "3.12.8"
