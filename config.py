@@ -7,7 +7,6 @@ Standalone scripts that need your keys should use legacy_config instead.
 from __future__ import annotations
 
 import aiohttp
-from solana.rpc.api import Client
 from solana.rpc.async_api import AsyncClient
 from solana.rpc.types import TokenAccountOpts
 from solders.pubkey import Pubkey
@@ -39,12 +38,15 @@ async def get_sol_price() -> float | None:
             return data.get("solana", {}).get("usd", 137)
 
 
-async def get_token_balance(key, token):
+async def get_token_balance(key: Pubkey | str, token: str) -> int:
+    owner = Pubkey.from_string(key.strip()) if isinstance(key, str) else key
     mint = Pubkey.from_string(token)
-    client = Client("https://api.mainnet-beta.solana.com")
-    token_account = client.get_token_accounts_by_owner(key, TokenAccountOpts(mint=mint))
-    if token_account.value:
-        token_account_pubkey = token_account.value[0].pubkey
-        balance = client.get_token_account_balance(token_account_pubkey)
-        return int(balance.value.ui_amount) if balance.value.ui_amount else 0
+    async with AsyncClient("https://api.mainnet-beta.solana.com") as client:
+        token_account = await client.get_token_accounts_by_owner(
+            owner, TokenAccountOpts(mint=mint)
+        )
+        if token_account.value:
+            token_account_pubkey = token_account.value[0].pubkey
+            balance = await client.get_token_account_balance(token_account_pubkey)
+            return int(balance.value.ui_amount) if balance.value.ui_amount else 0
     return 0
